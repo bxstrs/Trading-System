@@ -1,7 +1,7 @@
 '''src/strategies/bb_squeeze/signal.py'''
 from typing import Optional
 
-from src.core.types import Signal, Direction, MarketState, TradeSetup
+from src.core.types import Signal, Direction, MarketState
 from src.strategies.bb_squeeze.config import BBSqueezeConfig
 from src.strategies.base import Strategy
 from src.indicators.incremental.volatility_live import (
@@ -14,10 +14,8 @@ from src.infrastructure.logger.data_logger import DataLogger
 
 
 class BBSqueeze(Strategy):
-    def __init__(self, config: BBSqueezeConfig, datalogger: Optional[DataLogger] = None):
+    def __init__(self, config: BBSqueezeConfig):
         super().__init__(config)
-
-        self.datalogger = datalogger or DataLogger()
 
         # adaptive state
         self._last_trade_was_loss = False
@@ -194,3 +192,15 @@ class BBSqueeze(Strategy):
         if trade.net_pnl is None:
             return
         self._last_trade_was_loss = trade.net_pnl < 0
+
+    def expose_indicator_values(self):
+        prev_upper, prev_lower, prev_middle = self.indicators.get_previous_bollinger_bands()
+        return {
+            "bb_upper": prev_upper,
+            "bb_lower": prev_lower,
+            "bb_middle": prev_middle,
+            "atr": self.indicators.get_atr(),   
+            "bandwidth": self.indicators.get_bandwidth(),
+            "bandwidth_ma": self.bandwidth_ma.get_bandwidth_ma(),
+            "adaptive_filter_active": self._last_trade_was_loss,
+        }

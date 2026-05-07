@@ -10,8 +10,6 @@ from src.infrastructure.logger.logger import log
 
 class DataLogger:
     """Unified trade journal with gzip compression. Scalable for multiple strategies/assets."""
-    
-    _instances = {}  # Singleton storage: {(strategy_id, symbol): instance}
 
     TRADE_HEADERS = [
         # TradeSetup: signal intent
@@ -72,14 +70,6 @@ class DataLogger:
         self._row_timestamps: dict = {}  # setup_id -> time.monotonic()
         self._writes_since_fsync = 0
         self._fsync_batch_size = 10 
-        
-    @classmethod
-    def get_instance(cls, base_path="logs", strategy_id: str = "default", symbol: str = "UNKNOWN"):
-
-        key = (strategy_id, symbol)
-        if key not in cls._instances:
-            cls._instances[key] = cls(base_path, strategy_id, symbol)
-        return cls._instances[key]
 
     def log_trade_setup(self, setup) -> None:
         """Log trade setup (signal intent). Row remains open for execution/result updates."""

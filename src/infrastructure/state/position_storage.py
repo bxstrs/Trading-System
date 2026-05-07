@@ -1,4 +1,4 @@
-"""State persistence for crash recovery"""
+"""infrastructure/state/position_storage.py"""
 import json
 import os
 from datetime import datetime, timezone
@@ -74,7 +74,7 @@ class PositionStorage:
             log(f"[ERROR] Failed to load checkpoint: {e}", level="ERROR")
             return None
     
-    def check_positions(self, bridge, symbol, mt5_positions, checkpoint_data):
+    def check_positions(self, mt5_positions, checkpoint_data):
         if not checkpoint_data or not checkpoint_data.get("positions"):
             return {"closed": set(), "new": set()}
         
