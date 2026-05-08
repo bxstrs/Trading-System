@@ -13,9 +13,6 @@ from src.domain.risk_manager import RiskManager
 
 class PositionManager:
     def __init__(self, bridge, datalogger: Optional[DataLogger] = None):
-
-        # Position metadata: ticket → {setup_id, execution_id, trade, mae, mfe}
-        self._position_metadata: Dict[int, Dict] = {}
         
         self.bridge = bridge
         self.datalogger = datalogger or DataLogger()
@@ -23,6 +20,9 @@ class PositionManager:
         risk_config = load_yaml("risk.yaml")
         self.risk_manager = RiskManager(risk_config)
 
+        # Position metadata: ticket → {setup_id, execution_id, trade, mae, mfe}
+        self._position_metadata: Dict[Tuple[int, int], Dict] = {}
+        
     # ------------------------------------------------------------------
     # Position Queries
     # ------------------------------------------------------------------
@@ -45,7 +45,8 @@ class PositionManager:
             )
             if match:
                 # Retrieve metadata if exists, use placeholders if new position
-                meta = self._position_metadata.get(pos.ticket, {})
+                key = self._get_position_key(pos)
+                meta = self._position_metadata.get(key, {})
                 setup_id = meta.get('setup_id')
                 execution_id = meta.get('execution_id')
                 entry_slippage = meta.get('entry_slippage', 0.0)
@@ -63,10 +64,10 @@ class PositionManager:
         log(f"[POSITION] {len(result)} position(s) matched strategy_id='{strategy_id}'", level="DEBUG")
         return result
     
-    def load_metadata(self, metadata: Dict[int, Dict]) -> None:
+    def load_metadata(self, metadata: Dict[Tuple[int, int], Dict]) -> None:
         """Restore metadata from checkpoint."""
         self._position_metadata = {
-            int(k): v for k, v in metadata.items()
+            k: v for k, v in metadata.items()
         }
         log(f"[RECOVERY] Restored metadata for {len(self._position_metadata)} positions", level="INFO")
 
@@ -74,17 +75,22 @@ class PositionManager:
         return dict(self._position_metadata)
 
     def remove_metadata(self, ticket: int):
-        if ticket in self._position_metadata:
-            del self._position_metadata[ticket]
-            log(f"[META] Removed metadata {ticket}", level="DEBUG")
+        keys_to_remove = [
+            key for key in self._position_metadata
+            if key[0] == int(ticket)
+        ]
+
+        for key in keys_to_remove:
+            del self._position_metadata[key]
+            log(f"[META] Removed metadata {key}", level="DEBUG")
 
     def ensure_metadata(self, pos):
-        ticket = int(pos.ticket)
+        key = self._get_position_key(pos)
 
-        if ticket not in self._position_metadata:
-            log(f"[META] Creating placeholder for {ticket}", level="WARNING")
+        if key not in self._position_metadata:
+            log(f"[META] Creating placeholder for {key}", level="WARNING")
 
-            self._position_metadata[ticket] = {
+            self._position_metadata[key] = {
                 "setup_id": None,
                 "execution_id": None,
                 "entry_price": pos.price_open,
@@ -117,16 +123,19 @@ class PositionManager:
     # Position Lifecycle Tracking
     # ------------------------------------------------------------------
 
-    def track_position_entry(
+    def track_entry_position(
         self,
         position_ticket: int,
+        open_time: datetime,
         setup_id: str,
         execution_id: str,
         entry_slippage: float = 0.0,
         entry_latency_ms: float = 0.0
     ) -> None:
         """Register position metadata when order fills."""
-        self._position_metadata[position_ticket] = {
+        metadata_key = self._build_position_key(position_ticket, open_time)
+
+        self._position_metadata[metadata_key] = {
             'setup_id': setup_id,
             'execution_id': execution_id,
             'entry_slippage': entry_slippage,
@@ -135,42 +144,8 @@ class PositionManager:
             'mae': 0.0,
             'mfe': 0.0,
         }
+
         log(f"[TRACKED] Position ticket={position_ticket} setup={setup_id}", level="DEBUG")
-
-    # ------------------------------------------------------------------
-    # MAE/MFE Tracking
-    # ------------------------------------------------------------------
-
-    def _update_mae_mfe(self, pos, trade: TradeResult) -> None:
-        """Update max adverse/favorable excursion for open position."""
-        if pos.ticket not in self._position_metadata:
-            return
-
-        meta = self._position_metadata[pos.ticket]
-        entry_price = trade.entry_price or meta.get('entry_price')
-
-        if entry_price is None:
-            return
-
-        if trade.direction == Direction.LONG:
-            # For longs: MAE = low from entry, MFE = high from entry
-            mid_price = (pos.bid + pos.ask) / 2 if hasattr(pos, 'bid') else pos.price_current
-
-            adverse = entry_price - mid_price  # Drawdown from entry
-            favorable = mid_price - entry_price  # Profit from entry
-
-            meta['mae'] = max(meta.get('mae', 0), adverse)
-            meta['mfe'] = max(meta.get('mfe', 0), favorable)
-
-        elif trade.direction == Direction.SHORT:
-            # For shorts: MAE = high from entry, MFE = low from entry
-            mid_price = (pos.bid + pos.ask) / 2 if hasattr(pos, 'bid') else pos.price_current
-
-            adverse = mid_price - entry_price  # Drawdown from entry
-            favorable = entry_price - mid_price  # Profit from entry
-
-            meta['mae'] = max(meta.get('mae', 0), adverse)
-            meta['mfe'] = max(meta.get('mfe', 0), favorable)
 
     # ------------------------------------------------------------------
     # Exit Handler
@@ -218,7 +193,8 @@ class PositionManager:
                     trade.duration_minutes = duration_seconds / 60.0
 
                 # Add MAE/MFE from tracking
-                meta = self._position_metadata.get(pos.ticket, {})
+                key = self._get_position_key(pos)
+                meta = self._position_metadata.get(key, {})
                 trade.max_adverse_excursion = meta.get('mae', 0.0)
                 trade.max_favorable_excursion = meta.get('mfe', 0.0)
 
@@ -230,5 +206,57 @@ class PositionManager:
                 strategy.update_trade_result(trade)
 
                 # Clean up metadata
-                if pos.ticket in self._position_metadata:
-                    del self._position_metadata[pos.ticket]
+                if key in self._position_metadata:
+                    del self._position_metadata[key]
+
+# ── Private helpers ───────────────────────────────────────────────────────────
+
+    def _get_position_key(self, pos) -> Tuple[int, int]:
+        """Create stable metadata key for MT5 positions."""
+        return (int(pos.ticket), int(pos.time))
+
+
+    def _build_position_key(self, ticket: int, open_time) -> Tuple[int, int]:
+        """Create metadata key from raw values."""
+
+        if hasattr(open_time, "timestamp"):
+            open_time = int(open_time.timestamp())
+
+        return (int(ticket), int(open_time))
+    
+    # ------------------------------------------------------------------
+    # MAE/MFE Tracking
+    # ------------------------------------------------------------------
+
+    def _update_mae_mfe(self, pos, trade: TradeResult) -> None:
+        """Update max adverse/favorable excursion for open position."""
+        key = self._get_position_key(pos)
+
+        if key not in self._position_metadata:
+            return
+
+        meta = self._position_metadata[key]
+        entry_price = trade.entry_price or meta.get('entry_price')
+
+        if entry_price is None:
+            return
+
+        if trade.direction == Direction.LONG:
+            # For longs: MAE = low from entry, MFE = high from entry
+            mid_price = (pos.bid + pos.ask) / 2 if hasattr(pos, 'bid') else pos.price_current
+
+            adverse = entry_price - mid_price  # Drawdown from entry
+            favorable = mid_price - entry_price  # Profit from entry
+
+            meta['mae'] = max(meta.get('mae', 0), adverse)
+            meta['mfe'] = max(meta.get('mfe', 0), favorable)
+
+        elif trade.direction == Direction.SHORT:
+            # For shorts: MAE = high from entry, MFE = low from entry
+            mid_price = (pos.bid + pos.ask) / 2 if hasattr(pos, 'bid') else pos.price_current
+
+            adverse = mid_price - entry_price  # Drawdown from entry
+            favorable = entry_price - mid_price  # Profit from entry
+
+            meta['mae'] = max(meta.get('mae', 0), adverse)
+            meta['mfe'] = max(meta.get('mfe', 0), favorable)

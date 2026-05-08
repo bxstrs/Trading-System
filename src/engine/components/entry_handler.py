@@ -126,8 +126,9 @@ def try_entry(
     )
     datalogger.log_trade_execution(execution)
  
-    position_manager.track_position_entry(
+    position_manager.track_entry_position(
         position_ticket=result.order,
+        open_time=market_state.timestamp,
         setup_id=setup_id,
         execution_id=execution_id,
         entry_slippage=execution.slippage,
