@@ -3,30 +3,8 @@ src/core/types.py
 """
 
 from dataclasses import dataclass
-from enum import Enum
 from datetime import datetime
-from typing import Optional
-
-
-class Direction(str, Enum):
-    """Trade direction enumeration."""
-    LONG = "LONG"
-    SHORT = "SHORT"
-    NEUTRAL = "NEUTRAL"
-
-
-class OrderType(str, Enum):
-    """Order type enumeration."""
-    MARKET = "MARKET"
-    LIMIT = "LIMIT"
-    STOP = "STOP"
-
-
-class TradeStatus(str, Enum):
-    """Trade status enumeration."""
-    OPEN = "OPEN"
-    CLOSED = "CLOSED"
-    CANCELLED = "CANCELLED"
+from src.core.enums import Direction, TradeStatus, ExecutionStatus, PredictionDecision
 
 @dataclass(slots=True)
 class TickData:
@@ -34,10 +12,27 @@ class TickData:
     bid: float
     ask: float
     last: float
-    volume: int
-    time: int
+    volume: float
+    time: datetime
 
-@dataclass
+@dataclass(slots=True)
+class Position:
+    ticket: int
+    time: datetime
+    symbol: str
+    direction: Direction
+    volume: float
+    open_price: float
+    sl: float | None
+    tp: float | None
+
+@dataclass(frozen=True)
+class MarketSnapshot:
+    tick: TickData
+    history: dict | None = None
+    is_full_refresh: bool = False
+
+@dataclass(slots=True)
 class MarketState:
     """Current market snapshot for a single bar/candle."""
     symbol: str
@@ -47,9 +42,9 @@ class MarketState:
     high: float
     low: float
     close: float
-    volume: Optional[float] = None
-    bid: Optional[float] = None
-    ask: Optional[float] = None
+    volume: float | None = TickData.volume
+    bid: float | None    = TickData.bid
+    ask: float | None    = TickData.ask
 
     def __post_init__(self):
         """Validate market state."""
@@ -69,7 +64,7 @@ class Signal:
 
     direction: Direction
     entry_price: float # Intended entry price.
-    notes: Optional[str] = None
+    notes: str | None = None
 
 
 @dataclass
@@ -99,7 +94,7 @@ class TradeSetup:
     candle_high: float
     candle_low: float
     candle_close: float
-    prev_trade_pnl: Optional[float] = None
+    prev_trade_pnl: float | None = None
     adaptive_filter_active: bool = False
 
 
@@ -107,15 +102,16 @@ class TradeSetup:
 class TradeExecution:
     """Execution details: what actually filled."""
     execution_id: str
-    setup_id: str
+    setup_id: str | None # Fill later in entry_handler
+    order: int
 
     filled_entry_price: float
     filled_volume: float
-    filled_time: datetime
+    filled_time: datetime | None
 
-    slippage: float
-    latency_ms: float
-    status: str  # SUCCESS / PARTIAL / FAILED
+    slippage: float | None
+    latency_ms: float | None
+    status: ExecutionStatus
 
 
 @dataclass
@@ -131,27 +127,27 @@ class TradeResult:
     entry_slippage: float
     entry_latency_ms: float
 
-    execution_id: Optional[str] = None
-    setup_id: Optional[str] = None
+    execution_id: str | None = None
+    setup_id: str | None = None
 
-    exit_price: Optional[float] = None
-    exit_time: Optional[datetime] = None
-    exit_reason: Optional[str] = None
+    exit_price: float | None = None
+    exit_time: datetime | None = None
+    exit_reason: str | None = None
 
-    exit_bid: Optional[float] = None
-    exit_ask: Optional[float] = None
+    exit_bid: float | None = None
+    exit_ask: float | None = None
 
     gross_pnl: float = 0.0
     fees: float = 0.0
     net_pnl: float = 0.0
 
-    duration_minutes: Optional[float] = None
-    risk_reward_ratio: Optional[float] = None
+    duration_minutes: float | None = None
+    risk_reward_ratio: float | None = None
 
-    max_adverse_excursion: Optional[float] = None
-    max_favorable_excursion: Optional[float] = None
+    max_adverse_excursion: float | None = None
+    max_favorable_excursion: float | None = None
     is_recovered: bool = False
-    status: str = "OPEN"
+    status: TradeStatus = TradeStatus.PENDING
 
     def __post_init__(self):
         """Validate trade result."""
@@ -199,39 +195,11 @@ class Prediction:
     symbol: str
 
     probability: float  # 0.00 to 1.00 (likelihood signal is good)
-    decision: bool
+    decision: PredictionDecision
     model_name: str
-    notes: Optional[str] = None
+    notes: str | None = None
 
     def __post_init__(self):
         """Validate prediction."""
         if not 0.00 <= self.probability <= 1.00:
             raise ValueError("Probability must be between 0.00 and 1.00")
-
-
-# Deprecated: Use TradeSetup + TradeExecution + TradeResult instead
-# @dataclass
-# class Trade:
-#     """A completed or open trade. [DEPRECATED - use TradeResult]"""
-#     # Identifiers
-#     symbol: str
-#     trade_id: str
-#     strategy_id: str
-#
-#     # Order details
-#     direction: Direction
-#     entry_price: float
-#     entry_time: datetime
-#     volume: float
-#     status: Optional[TradeStatus] = None
-#
-#     stop_loss: Optional[float] = None
-#     take_profit: Optional[float] = None
-#     exit_price: Optional[float] = None
-#     exit_time: Optional[datetime] = None
-#
-#     # Performance metrics
-#     gross_pnl: Optional[float] = None
-#     net_pnl: Optional[float] = None
-#     commissions: Optional[float] = None
-#     slippage: Optional[float] = None

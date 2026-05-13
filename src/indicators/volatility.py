@@ -2,6 +2,7 @@
 import math
 from collections import deque
 from typing import Tuple, Optional
+
 from src.indicators.base import Indicator
 
 class IncrementalVolatility(Indicator):
@@ -122,7 +123,7 @@ class IncrementalVolatility(Indicator):
     def is_ready(self) -> bool:
         return len(self.closes) >= self.bb_period and len(self.tr_values) > 0
 
-class BandwidthMACalculator:
+class BandwidthMACalculator(Indicator):
     def __init__(self, bw_ma_period: int = 150):
         self.bw_ma_period = bw_ma_period
         self.values = deque(maxlen=bw_ma_period)

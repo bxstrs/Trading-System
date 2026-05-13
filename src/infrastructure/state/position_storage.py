@@ -2,6 +2,7 @@
 import json
 import os
 from datetime import datetime, timezone
+
 from src.infrastructure.logger.logger import log
 
 class PositionStorage:

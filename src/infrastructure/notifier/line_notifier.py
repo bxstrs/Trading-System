@@ -1,7 +1,9 @@
 """LINE Notify integration for critical alerts and manual review notifications."""
 import os
+import time
 import requests
 from typing import Optional
+
 from src.infrastructure.logger.logger import log
 
 
@@ -16,30 +18,33 @@ class LineNotifier:
         else:
             log("LINE Notify token not set; notifications disabled", level="DEBUG")
 
-    def notify(self, message: str) -> bool:
-        """Send a LINE Notify message if a token is configured."""
+    def notify(self, message: str, max_retries: int = 3) -> bool:
+
         if not self.enabled:
             return False
-
         headers = {
             "Authorization": f"Bearer {self.token}",
         }
-
         payload = {
             "message": message,
         }
 
-        try:
-            response = requests.post(self.API_URL, headers=headers, data=payload, timeout=10)
-        except Exception as exc:
-            log(f"LINE Notify request failed: {exc}", level="ERROR")
-            return False
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = requests.post(
+                    self.API_URL, headers=headers, data=payload, timeout=5
+                )
+                if response.status_code == 200:
+                    log(f"LINE Notify success: {message}", level="DEBUG")
+                    return True
+                
+            except requests.Timeout:
+                if attempt < max_retries:
+                    time.sleep(0.5 * (2 ** (attempt - 1)))
+                    continue
+                log(f"LINE notify timed out after {max_retries} attempts", level="ERROR")
 
-        if response.status_code != 200:
-            log(
-                f"LINE Notify returned {response.status_code}: {response.text}",
-                level="ERROR",
-            )
-            return False
-
-        return True
+            except Exception as exc:
+                log(f"LINE Notify request failed: {exc}", level="ERROR")
+                return False
+        return False

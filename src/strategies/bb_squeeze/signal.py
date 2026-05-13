@@ -4,7 +4,7 @@ from typing import Optional
 from src.core.types import Signal, Direction, MarketState
 from src.strategies.bb_squeeze.config import BBSqueezeConfig
 from src.strategies.base import Strategy
-from src.indicators.incremental.volatility_live import (
+from src.indicators.volatility import (
     IncrementalVolatility,
     BandwidthMACalculator
 )
@@ -33,7 +33,7 @@ class BBSqueeze(Strategy):
             bw_ma_period=config.bw_ma_period
         )
 
-    def on_new_bar(self, history: dict):
+    def update_indicators(self, history: dict):
         closes = history["close"]
         highs = history["high"]
         lows = history["low"]
@@ -65,36 +65,32 @@ class BBSqueeze(Strategy):
         setup_bar_time = history["timestamp"][-2]
 
         if self._current_bar_time != current_bar_time:
-            self.on_new_bar(history)
+            self.update_indicators(history)
             log(f"ts={current_bar_time}, prev={self._current_bar_time}")
             self._current_bar_time = current_bar_time
 
         if not (self.indicators.is_ready() and self.bandwidth_ma.is_ready()):
-            log(f"Indicators status: {self.indicators.is_ready()}, bw_ma: {self.bandwidth_ma.is_ready()}", level="DEBUG")
-            return None
+            return log(f"Indicators status: {self.indicators.is_ready()}, bw_ma: {self.bandwidth_ma.is_ready()}", level="DEBUG")
+
 
         if spread > self.config.max_spread:
-            log(f"Spread too high: {spread}")
-            return None
-
+            return log(f"Spread too high: {spread}", level="DEBUG")
+        
         # ── Setup monitoring and expiration logic ───────────────────────
         if self._tracked_setup_bar != setup_bar_time:
             self._tracked_setup_bar = setup_bar_time
             self._entry_window_bar = current_bar_time
 
         if current_bar_time != self._entry_window_bar:
-            log(f"[FILTERED] Setup expired — setup={setup_bar_time}, window={self._entry_window_bar}, now={current_bar_time}")
-            return None
+            return log(f"[FILTERED] Setup expired — setup={setup_bar_time}, window={self._entry_window_bar}, now={current_bar_time}")
 
+        # ── Data gap ────────────────────────────────────────────────────
         if len(history["timestamp"]) >= 3:
             bar_interval = history["timestamp"][-2] - history["timestamp"][-3]
             actual_gap = history["timestamp"][-1] - history["timestamp"][-2]
             if bar_interval > 0 and actual_gap > bar_interval * 1.5:
-                log(
-                    f"[FILTERED] Data gap detected — expected ~{bar_interval}s, got {actual_gap}s",
-                    level="WARNING"
-                )
-                return None
+                return log(f"[FILTERED] Data gap detected — expected ~{bar_interval}s, got {actual_gap}s",level="WARNING")
+
 
         # ===== use incremental values =====
         prev_upper, prev_lower, _ = self.indicators.get_previous_bollinger_bands()
@@ -110,15 +106,11 @@ class BBSqueeze(Strategy):
         if bandwidth >= self.config.constant * bandwidth_ma:
             return None
 
-        closes = history["close"]
-        highs = history["high"]
-        lows = history["low"]
-        opens = history["open"]
-
-        prev_open = opens[-2]
-        prev_close = closes[-2]
-        prev_high = highs[-2]
-        prev_low = lows[-2]
+        # previous candle
+        prev_open = history["open"][-2]
+        prev_close = history["close"][-2]
+        prev_high = history["high"][-2]
+        prev_low = history["low"][-2]
 
         # ── Adaptive filter (tighten after a loss) ───────────────────
         if self._last_trade_was_loss:
@@ -126,7 +118,6 @@ class BBSqueeze(Strategy):
                 return None
 
         # ── Candle validity ──────────────────────────────────────────
-        # Reject full-range candles that cross both bands (indecisive)
         valid_candle = not (
             (prev_open > prev_upper and prev_close < prev_upper)
             or (prev_open < prev_lower and prev_close > prev_lower)
