@@ -15,9 +15,10 @@ class BBSqueeze(Strategy):
  
         # Adaptive state
         self._last_trade_was_loss: bool = False
-        self._current_bar_time = None       # tracks last processed bar
-        self._tracked_setup_bar = None      # setup bar (history[-2]) being monitored
-        self._entry_window_bar = None       # bar time when this setup first appeared
+        self._current_bar_time          = None      # tracks last processed bar
+        self._tracked_setup_bar         = None      # setup bar (history[-2]) being monitored
+        self._entry_window_bar          = None      # bar time when this setup first appeared
+        self._consumed_setup_bar        = None
  
         self.indicators = IncrementalVolatility(
             bb_period=config.bb_period,
@@ -101,6 +102,10 @@ class BBSqueeze(Strategy):
                     f"setup={setup_bar_time}, window={self._entry_window_bar}, now={current_bar_time}",
                 )
                 return None
+            
+            # ── Consumed setup guard ─────────────────────────────────
+            if self._consumed_setup_bar == setup_bar_time:
+                return None
     
             # ── Data-gap guard ───────────────────────────────────────
             if len(history.time_unix) >= 3:
@@ -146,6 +151,7 @@ class BBSqueeze(Strategy):
             # ── BUY signal ───────────────────────────────────────────
             if prev_close > prev_upper and valid_candle:
                 if tick.ask and tick.ask > prev_high + 0.1 * atr_value:
+                    self._consumed_setup_bar = setup_bar_time
                     return Signal(
                         signal_id   = f"{tick.time}_BUY",
                         symbol      = tick.symbol,
@@ -159,6 +165,7 @@ class BBSqueeze(Strategy):
             # ── SELL signal ──────────────────────────────────────────
             if prev_close < prev_lower and valid_candle:
                 if tick.bid and tick.bid < prev_low - 0.1 * atr_value:
+                    self._consumed_setup_bar = setup_bar_time
                     return Signal(
                         signal_id   = f"{tick.time}_SELL",
                         symbol      = tick.symbol,
