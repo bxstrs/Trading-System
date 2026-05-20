@@ -3,7 +3,7 @@ import time
 import inspect
 import os
 
-LOG_LEVEL = "INFO"  # DEBUG, INFO, ERROR
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 levels = ["DEBUG", "INFO", "WARNING", "CRITICAL", "ERROR"]
 
 def log(msg, level="INFO", source=None):

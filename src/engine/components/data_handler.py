@@ -3,7 +3,7 @@ import time
 from datetime import datetime, timezone
 
 from typing import Tuple
-from domain.market_data import TickData, History, MarketSnapshot
+from src.domain.market_data import TickData, History, MarketSnapshot
 from src.domain.exceptions import MarketDataUnavailable, TickFetchError
 from src.engine.components.trading_config import TradingConfig
 from src.infrastructure.logger.logger import log
@@ -48,7 +48,7 @@ def get_market_snapshot(
         return MarketSnapshot(
             tick            = tick,
             history         = history,
-            is_full_refresh = True,
+            force_full = True,
         )
     last_error = None
 
@@ -59,7 +59,7 @@ def get_market_snapshot(
             return MarketSnapshot(
                 tick            = tick,
                 history         = None,
-                is_full_refresh = False,
+                force_full = False,
             )
         except TickFetchError as exc:
             last_error = exc
@@ -69,39 +69,3 @@ def get_market_snapshot(
                 time.sleep(0.25)
 
     raise MarketDataUnavailable (f"Unable to fetch market tick aftern {config.max_fetch_attempts} attempts") from last_error
-
-'''
-def build_snapshot(
-    history: History,
-    tick: TickData,
-    config: TradingConfig,
-    use_previous: bool = False,
-) -> MarketSnapshot:
-
-    idx = -2 if use_previous else -1
-
-    if not history or not history.time_unix or len(history.time_unix) < abs(idx):
-        raise ValueError(
-            f"Insufficient history: got {len(history.time_unix)} bars, "
-            f"need at least {abs(idx)}"
-        )
-
-    if tick is None or tick.bid is None or tick.ask is None:
-        raise ValueError(
-            f"Invalid tick data: bid={getattr(tick, 'bid', None)}, "
-            f"ask={getattr(tick, 'ask', None)}"
-        )
-
-    return MarketState(
-        symbol      = config.symbol,
-        interval    = config.timeframe,
-        timestamp   = datetime.fromtimestamp(history["timestamp"][idx], tz=timezone.utc),
-        open        = history["open"][idx],
-        high        = history["high"][idx],
-        low         = history["low"][idx],
-        close       = history["close"][idx],
-        bid         = tick.bid,
-        ask         = tick.ask,
-        volume      = tick.volume,
-    )
-'''

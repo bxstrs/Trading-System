@@ -38,4 +38,4 @@ class History:
 class MarketSnapshot:
     tick:               TickData
     history:            History | None = None
-    is_full_refresh:    bool = False
+    force_full:         bool = False

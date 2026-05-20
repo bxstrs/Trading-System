@@ -1,6 +1,6 @@
 '''src/strategies/bb_squeeze/signal.py'''
 from src.domain.market_data             import MarketSnapshot, History
-from src.domain.trading                 import Signal
+from src.domain.trading                 import Signal, Position
 from src.domain.enums                   import Direction
 from src.strategies.bb_squeeze.config   import BBSqueezeConfig
 from src.strategies.base                import Strategy
@@ -86,7 +86,8 @@ class BBSqueeze(Strategy):
     
             # ── Spread guard ─────────────────────────────────────────
             if spread > self.config.max_spread:
-                return log(f"Spread too high: {spread}", level="DEBUG")
+                log(f"Spread too high: {spread}", level="DEBUG")
+                return None
     
             # ── Setup window tracking ─────────────────────────────────
             # A signal is valid only in the bar immediately after the setup bar forms.
@@ -95,20 +96,22 @@ class BBSqueeze(Strategy):
                 self._entry_window_bar  = current_bar_time
     
             if current_bar_time != self._entry_window_bar:
-                return log(
+                log(
                     f"[FILTERED] Setup expired — "
                     f"setup={setup_bar_time}, window={self._entry_window_bar}, now={current_bar_time}",
                 )
+                return None
     
             # ── Data-gap guard ───────────────────────────────────────
             if len(history.time_unix) >= 3:
                 bar_interval = history.time_unix[-2] - history.time_unix[-3]
                 actual_gap   = history.time_unix[-1] - history.time_unix[-2]
                 if bar_interval > 0 and actual_gap > bar_interval * 1.5:
-                    return log(
+                    log(
                         f"[FILTERED] Data gap — expected ~{bar_interval}s, got {actual_gap}s",
                         level="WARNING",
                     )
+                    return None
     
             # ── Indicator values ─────────────────────────────────────
             prev_upper, prev_lower, _ = self.indicators.get_previous_bollinger_bands()
@@ -172,7 +175,7 @@ class BBSqueeze(Strategy):
     # Exit logic
     # ─────────────────────────────────────────────────────────────
  
-    def check_exit(self, trade, snapshot: MarketSnapshot) -> bool:
+    def check_exit(self, pos: Position, snapshot: MarketSnapshot) -> bool:
         """
         Close a LONG when bid falls to/below the lower band.
         Close a SHORT when ask rises to/above the upper band.
@@ -182,10 +185,10 @@ class BBSqueeze(Strategy):
         if upper is None or lower is None:
             return False
  
-        if trade.direction == Direction.LONG:
+        if pos.direction == Direction.LONG:
             return snapshot.tick.bid <= lower
  
-        if trade.direction == Direction.SHORT:
+        if pos.direction == Direction.SHORT:
             return snapshot.tick.ask >= upper
  
         return False

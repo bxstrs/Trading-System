@@ -68,7 +68,7 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
     ticks_since_checkpoint = 0
 
     last_entry_bar_time = None
-    current_bar_time = history["timestamp"][-1]
+    current_bar_time = history.time_unix[-1]
 
     last_fetch_time = time.time()
     loop_start = time.time()
@@ -79,7 +79,7 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
             tick_counter += 1
             ticks_since_checkpoint += 1
             iteration_start = time.time()
- 
+            executed = False
             # ── Periodic checkpoint ───────────────────────────────────
             if ticks_since_checkpoint >= _trading_config.checkpoint_interval:
                 _save_checkpoint(position_manager, strategy)
@@ -89,7 +89,8 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
             if time.time() - last_fetch_time > _trading_config.rate_fetch_interval:
 
                 snapshot = get_market_snapshot(bridge, _trading_config, True)
-                current_bar_time = history["timestamp"][-1]
+                if snapshot.history:
+                    current_bar_time = snapshot.history.time_unix[-1]
                 last_fetch_time = time.time()
 
                 _heartbeat_logger(tick_counter, snapshot.tick, current_bar_time)
@@ -125,10 +126,10 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
                 )
 
             if executed:
-                had_position = True
-                last_entry_bar_time =  current_bar_time
-                log(f"Signal executed in {time.time() - iteration_start:.3f}s")
- 
+                    had_position = True
+                    last_entry_bar_time =  current_bar_time
+                    log(f"Signal executed in {time.time() - iteration_start:.3f}s")
+    
             time.sleep(_trading_config.tick_sleep)
  
     except KeyboardInterrupt:
@@ -205,7 +206,7 @@ def _save_checkpoint(position_manager: PositionManager, strategy) -> None:
         _trading_config.symbol, strategy.strategy_id
     )
     _position_storage.save_positions(
-        [pos for pos, _ in positions],
+        [pos for pos in positions],
         strategy_id = strategy.strategy_id,
         metadata = position_manager.export_metadata(),
     )

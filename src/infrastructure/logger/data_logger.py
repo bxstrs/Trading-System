@@ -25,7 +25,7 @@ class DataLogger:
         "entry_slippage", "entry_latency_ms", "execution_status",
         # TradeResult: complete lifecycle
         "trade_id", "exit_price", "exit_time", "exit_reason",
-        "exit_bid", "exit_ask", "gross_pnl", "fees", "net_pnl",
+        "exit_bid", "exit_ask", "total_fees", "net_pnl",
         "duration_minutes", "risk_reward_ratio",
         "max_adverse_excursion", "max_favorable_excursion", "trade_status",
     ]
@@ -132,8 +132,7 @@ class DataLogger:
             "exit_reason": result.exit_reason,
             "exit_bid": result.exit_bid,
             "exit_ask": result.exit_ask,
-            "gross_pnl": result.gross_pnl,
-            "fees": result.fees,
+            "total_fees": result.fees,
             "net_pnl": result.net_pnl,
             "duration_minutes": result.duration_minutes,
             "risk_reward_ratio": result.risk_reward_ratio,
@@ -206,7 +205,11 @@ class DataLogger:
 
         self.portfolio_writer.writerow(row)
         self.portfolio_file.flush()
-        os.fsync(self.portfolio_file.fileno())
+        try:
+            os.fsync(self.portfolio_file.fileno())
+        except (OSError, IOError):
+            pass
+
 
     def close(self) -> None:
         """Flush all pending data (including abandoned rows) and close files."""

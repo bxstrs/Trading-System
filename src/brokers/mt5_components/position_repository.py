@@ -1,7 +1,8 @@
 """MT5 Position queries - handles position and deal lookups."""
 import MetaTrader5 as mt5
-from datetime import datetime, timezone
 
+from typing import List
+from datetime import datetime, timezone
 from src.domain.enums import Direction
 from src.domain.trading import Position, TradeHistory
 from src.infrastructure.logger.logger import log
@@ -13,28 +14,37 @@ class PositionRepository:
     def __init__(self, connection_manager):
         self.connection_manager = connection_manager
 
-    def get_positions(self, symbol: str) -> Position:
+    def get_positions(self, symbol: str) -> List[Position]:
 
         if not self.connection_manager.ensure_connected():
             raise ConnectionError("Not connected to MT5")
 
-        raw_position = mt5.positions_get(symbol=symbol)
-        direction = (
-            Direction.LONG
-            if raw_position.type == mt5.POSITION_TYPE_BUY
-            else Direction.SHORT
-        )
+        raw_positions = mt5.positions_get(symbol=symbol)
+
+        if not raw_positions:
+            return []
         
-        return Position(
-            ticket      = raw_position.ticket,
-            time        = datetime.fromtimestamp(raw_position.time, tz=timezone.utc),
-            symbol      = raw_position.symbol,
-            direction   = direction,
-            volume      = raw_position.volumn,
-            sl          = raw_position.sl,
-            tp          = raw_position.tp,
-            open_price  = raw_position.price_open,
-        )
+        result = []
+        for raw_position in raw_positions:
+            direction = (
+                Direction.LONG
+                if raw_position.type == mt5.POSITION_TYPE_BUY
+                else Direction.SHORT
+            )
+            pos = Position(
+                ticket      = raw_position.ticket,
+                magic       = raw_position.magic,
+                time        = datetime.fromtimestamp(raw_position.time, tz=timezone.utc),
+                symbol      = raw_position.symbol,
+                direction   = direction,
+                volume      = raw_position.volume,
+                sl          = raw_position.sl,
+                tp          = raw_position.tp,
+                open_price  = raw_position.price_open,
+                profit      = raw_position.profit
+            )
+            result.append(pos)
+        return result
 
     def history_deals_get(self, ticket) -> TradeHistory:
 

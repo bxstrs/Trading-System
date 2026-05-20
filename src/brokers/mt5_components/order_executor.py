@@ -5,7 +5,7 @@ import uuid
 
 from datetime                                   import datetime, timezone
 from src.domain.enums                           import Direction, ExecutionStatus
-from src.domain.trading                         import TradeSetup, TradeExecution
+from src.domain.trading                         import Position, TradeSetup, TradeExecution
 from src.brokers.mt5_components.retcode_mapper  import map_retcode
 from src.infrastructure.logger.logger           import log
 
@@ -20,10 +20,15 @@ from src.infrastructure.logger.logger           import log
 #==================================
 
 class OrderExecutor:
-    def __init__(self, data_fetcher):
+    def __init__(self, connector, data_fetcher):
+
+        self.connector = connector
         self.data_fetcher = data_fetcher
 
     def send_order(self, setup: TradeSetup, volume: float, magic: int, comment: str = "forward_test", max_retries: int = 3) -> TradeExecution | None:
+        
+        if not self.connector.ensure_connected():
+            raise ConnectionError("Not connected to MT5")
         
         tick = self.data_fetcher.get_tick(setup.symbol)
 
@@ -48,7 +53,7 @@ class OrderExecutor:
         # Retry logic with exponential backoff
         for attempt in range(1, max_retries + 1):
             try:
-                begin_time = datetime.now(timezone.utc).second
+                t0 = time.perf_counter()
                 result = mt5.order_send(request)
                 status = map_retcode(result.retcode)
 
@@ -58,11 +63,12 @@ class OrderExecutor:
                     return TradeExecution(
                             setup_id            = setup.setup_id,
                             position_id         = result.position,
+                            deal                = result.deal,
                             fill_price          = result.price,
                             fill_volume         = result.volume,
                             fill_time           = fill_time,
                             slippage            = abs(result.price - price),
-                            latency_ms          = (begin_time - fill_time.second) / 1000,
+                            latency_ms          = (time.perf_counter() - t0) * 1000,
                             status              = ExecutionStatus.DONE,
                     )
                 else:
@@ -89,11 +95,14 @@ class OrderExecutor:
 
         return None
 
-    def close_position(self, position, max_retries: int = 3) -> TradeExecution | None:
+    def close_position(self, pos: Position, max_retries: int = 3) -> TradeExecution | None:
 
-        tick = self.data_fetcher.get_tick(position.symbol)
+        if not self.connector.ensure_connected():
+            raise ConnectionError("Not connected to MT5")
+        
+        tick = self.data_fetcher.get_tick(pos.symbol)
 
-        if position.type == mt5.POSITION_TYPE_BUY:
+        if pos.direction == Direction.LONG:
             order_type = mt5.ORDER_TYPE_SELL
             price = tick.bid
         else:
@@ -101,13 +110,13 @@ class OrderExecutor:
             price = tick.ask
 
         request = self._build_order_request(
-            symbol          = position.symbol,
+            symbol          = pos.symbol,
             order_type      = order_type,
-            volume          = position.volume,
+            volume          = pos.volume,
             price           = price,
-            magic           = position.magic,
+            magic           = pos.magic,
             comment         = "close",
-            position_ticket = position.ticket
+            position_ticket = pos.ticket
         )
 
         for attempt in range(1, max_retries + 1):
@@ -122,6 +131,7 @@ class OrderExecutor:
                     return TradeExecution(
                             setup_id            = None,
                             position_id         = result.position,
+                            deal                = result.deal,
                             fill_price          = result.price,
                             fill_volume         = result.volume,
                             fill_time           = fill_time,

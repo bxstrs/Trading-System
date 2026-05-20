@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
-from domain.enums import Direction, TradeStatus, ExecutionStatus
+from src.domain.enums import Direction, TradeStatus, ExecutionStatus
 
 
 @dataclass
@@ -17,13 +17,16 @@ class Signal:
 @dataclass(slots=True)
 class Position:
     ticket:     int
+    magic:      int
     time:       datetime
     symbol:     str
     direction:  Direction
     volume:     float
     open_price: float
+    profit:     float
     sl:         float | None
     tp:         float | None
+    
 
 
 @dataclass
@@ -63,6 +66,7 @@ class TradeSetup:
 class TradeExecution:
     setup_id:               str | None
     position_id:            int
+    deal:                   int
     fill_price:             float
     fill_volume:            float
     fill_time:              datetime | None

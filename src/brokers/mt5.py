@@ -1,3 +1,4 @@
+from typing import List
 from src.domain.market_data import TickData, History
 from src.domain.trading     import Position, TradeSetup, TradeHistory, TradeExecution
 from src.brokers.mt5_components.connector import ConnectionManager
@@ -12,7 +13,7 @@ class MT5Bridge:
         """Initialize MT5 Bridge with all components."""
         self.connection = ConnectionManager(login, password, server)
         self.market_data = MarketDataFetcher(self.connection)
-        self.executor = OrderExecutor(self.connection)
+        self.executor = OrderExecutor(self.connection, self.market_data)
         self.positions = PositionRepository(self.connection)
 
         # Expose commonly used connection methods
@@ -45,7 +46,7 @@ class MT5Bridge:
         return self.executor.close_position(position)
 
     # Position Queries
-    def get_positions(self, symbol: str) -> Position:
+    def get_positions(self, symbol: str) -> List[Position]:
         return self.positions.get_positions(symbol)
 
     def history_deals_get(self, ticket) -> TradeHistory:

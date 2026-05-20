@@ -2,20 +2,23 @@ from src.config.loader import load_yaml
 from src.infrastructure.logger.logger import log
 from src.domain.trading import TradeResult
 
-risk_config = load_yaml("risk.yaml")
-
 class RiskManager:
 
-    def __init__ (self, config: dict = risk_config):
+    def __init__ (self):
 
-        self.enable_consecutive_loss_limit  = config.get("enable_consecutive_loss_limit", False)
-        self.max_consecutive_losses         = config.get("max_consecutive_losses", 5)
-        self.enable_drawdown_limit          = config.get("enable_drawdown_limit", False)
-        self.max_drawdown                   = config.get("max_drawdown", 0.2)
+        risk_config = load_yaml("risk.yaml")
+        self.config = risk_config
+
+        self.enable_consecutive_loss_limit  = self.config.get("enable_consecutive_loss_limit", False)
+        self.max_consecutive_losses         = self.config.get("max_consecutive_losses", 5)
+        self.enable_drawdown_limit          = self.config.get("enable_drawdown_limit", False)
+        self.max_drawdown                   = self.config.get("max_drawdown", 0.2)
 
         # Risk tracking state
-        self._consecutive_losses: int   = 0
-        self._trading_halted: bool      = False
+        self._consecutive_losses: int       = 0
+        self._trading_halted: bool          = False
+
+        
 
     # ------------------------------------------------------------------
     # Risk Guards

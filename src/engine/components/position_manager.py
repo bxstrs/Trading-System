@@ -3,7 +3,8 @@ from typing import List, Tuple, Dict
 from datetime import datetime
 
 from src.domain.enums import Direction, TradeStatus
-from src.domain.trading import TradeResult
+from src.domain.market_data import TickData
+from src.domain.trading import Position, TradeResult
 from src.infrastructure.logger.logger import log
 from src.infrastructure.logger.data_logger import DataLogger
 from src.config.loader import load_yaml
@@ -15,17 +16,14 @@ class PositionManager:
         self.bridge = bridge
         self.datalogger = datalogger or DataLogger()
 
-        risk_config = load_yaml("risk.yaml")
-
         self._position_metadata: Dict[Tuple[int, int], Dict] = {}
-        self._failed_closes_queqe: List[Tuple] = []
 
     # ------------------------------------------------------------------
     # Position Queries
     # ------------------------------------------------------------------
 
-    def get_strategy_positions(self, symbol: str, strategy_id: str) -> List[Tuple]:
-        """Return list of (Position, TradeResult) tuples for strategy."""
+    def get_strategy_positions(self, symbol: str, strategy_id: str) -> List[Position]:
+
         positions = self.bridge.get_positions(symbol)
         if not positions:
             return []
@@ -34,10 +32,7 @@ class PositionManager:
         for pos in positions:
             match = pos.comment == str(strategy_id)
             log(
-                f"[POSITION] ticket={pos.ticket} | "
-                f"raw_comment='{pos.comment}' | "
-                f"expected='{strategy_id}' | "
-                f"exact_match={match}",
+                f"[POSITION] ticket={pos.ticket} | raw_comment='{pos.comment}' | expected='{strategy_id}' | exact_match={match}",
                 level="DEBUG"
             )
             if not match:
@@ -45,29 +40,21 @@ class PositionManager:
 
             key  = self._get_position_key(pos)
             meta = self._position_metadata.get(key, {})
-
-            trade = TradeResult(
-                position_id             = pos.ticket,
-                symbol                  = pos.symbol,
-                volume                  = pos.volume,
-                net_pnl                 = pos.profit,
-                max_adverse_excursion   = meta.get('mae', 0.0),
-                max_favorable_excursion = meta.get('mfe', 0.0),
-                is_recovered            = meta.get('recovered', False),
-                status                  = TradeStatus.PENDING,
-            )
-            result.append((pos, trade))
+            result.append(pos)
 
         log(f"[POSITION] {len(result)} position(s) matched strategy_id='{strategy_id}'", level="DEBUG")
         return result
+    
+
+    def export_metadata(self):
+        return dict(self._position_metadata)
+    
 
     def load_metadata(self, metadata: Dict[Tuple[int, int], Dict]) -> None:
         """Restore metadata from checkpoint."""
         self._position_metadata = {k: v for k, v in metadata.items()}
         log(f"[RECOVERY] Restored metadata for {len(self._position_metadata)} positions", level="INFO")
 
-    def export_metadata(self):
-        return dict(self._position_metadata)
 
     def remove_metadata(self, ticket: int):
         keys_to_remove = [
@@ -77,6 +64,7 @@ class PositionManager:
         for key in keys_to_remove:
             del self._position_metadata[key]
             log(f"[META] Removed metadata {key}", level="DEBUG")
+
 
     def ensure_metadata(self, pos):
         key = self._get_position_key(pos)
@@ -140,9 +128,10 @@ class PositionManager:
     # MAE/MFE Tracking
     # ------------------------------------------------------------------
 
-    def _update_mae_mfe(self, pos) -> None:
+    def _update_mae_mfe(self, tick: TickData, pos: Position) -> None:
         """Update max adverse/favorable excursion for open position."""
         key = self._get_position_key(pos)
+
 
         if key not in self._position_metadata:
             return
@@ -153,7 +142,7 @@ class PositionManager:
         if entry_price is None:
             return
 
-        mid_price = (pos.bid + pos.ask) / 2 if hasattr(pos, 'bid') else pos.price_current
+        mid_price = (tick.bid + tick.ask) / 2
 
         if pos.direction == Direction.LONG:
             adverse   = entry_price - mid_price
@@ -170,12 +159,10 @@ class PositionManager:
     # ── Private helpers ────────────────────────────────────────────────
 
     def _get_position_key(self, pos) -> Tuple[int, int]:
-        """Create stable metadata key from a Position object."""
         t = pos.time
         return (int(pos.ticket), int(t.timestamp()) if hasattr(t, 'timestamp') else int(t))
 
     def _build_position_key(self, ticket: int, open_time) -> Tuple[int, int]:
-        """Create metadata key from raw values."""
         if hasattr(open_time, 'timestamp'):
             open_time = int(open_time.timestamp())
         return (int(ticket), int(open_time))

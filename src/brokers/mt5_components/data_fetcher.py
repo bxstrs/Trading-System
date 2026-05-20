@@ -4,7 +4,7 @@ from typing import Dict, Optional
 from datetime import datetime, timezone
 
 from src.domain.market_data import TickData, History
-from domain.exceptions import RateFetchError, TickFetchError
+from src.domain.exceptions import RateFetchError, TickFetchError
 from src.infrastructure.logger.logger import log
 
 
