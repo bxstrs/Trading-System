@@ -62,7 +62,7 @@ class OrderExecutor:
                     log(f"Order success (attempt {attempt}): {result}", level="INFO")
                     return TradeExecution(
                             setup_id            = setup.setup_id,
-                            position_id         = result.request.position,
+                            position_id         = result.order,
                             order               = result.order,
                             deal                = result.deal,
                             fill_price          = result.price,
