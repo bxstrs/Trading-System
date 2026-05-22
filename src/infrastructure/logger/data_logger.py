@@ -220,9 +220,14 @@ class DataLogger:
             pass
 
 
-    def close(self) -> None:
+    def close(self, clean_exit: bool = False) -> None:
         """Flush all pending data (including abandoned rows) and close files."""
-        flushed = self.flush_abandoned_rows(timeout_seconds=0)
+        if clean_exit:
+            flushed = self.flush_abandoned_rows(timeout_seconds=0)
+        else:
+            # On crash: don't write CANCELLED rows — reconcile will handle them on restart
+            flushed = 0
+            
         if flushed:
             log(f"[DATALOGGER] Flushed {flushed} abandoned row(s) on close", level="WARNING")
  

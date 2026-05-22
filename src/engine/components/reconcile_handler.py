@@ -51,6 +51,10 @@ def check_manual_closes(
         meta = position_manager._position_metadata.get(ticket)
         if meta is None:
             continue
+        
+        if meta.get("reconciled"):
+            position_manager.remove_metadata(ticket)
+            continue
 
         # Fetch all deals for this position to reconstruct exit
         try:
@@ -67,7 +71,10 @@ def check_manual_closes(
                 level="WARNING",
             )
             continue
-
+        
+        meta["reconciled"] = True
+        position_manager._position_metadata[ticket] = meta
+        
         # MT5 deal entry: 0=IN, 1=OUT, 2=IN/OUT
         entry_deals     = [d for d in deals if d.entry == 0]
         exit_deal       = [d for d in deals if d.entry == 1][-1] or deals  # fallback to all

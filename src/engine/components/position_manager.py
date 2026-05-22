@@ -77,6 +77,7 @@ class PositionManager:
                 'mae':        0.0,
                 'mfe':        0.0,
                 'recovered':  True,
+                'reconciled': False,
             }
 
     def reconcile(self, mt5_positions, checkpoint_data, position_storage):
@@ -119,6 +120,7 @@ class PositionManager:
             'entry_price':      None,
             'mae':              0.0,
             'mfe':              0.0,
+            'reconciled':       False,
         }
 
         log(f"[TRACKED] Position ticket={position_ticket} setup={setup_id}", level="DEBUG")

@@ -107,10 +107,12 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
                 position_manager._update_mae_mfe(snapshot.tick, pos)
 
             # ── Manual-close detection ────────────────────────────────
-            check_manual_closes(
+            reconciled = check_manual_closes(
                 bridge, position_manager, risk_manager,
                 strategy, snapshot, datalogger, _trading_config,
             )
+            if reconciled > 0:
+                _save_checkpoint(position_manager, strategy)
 
             # ── Exit check ────────────────────────────────────────────
             try_exit(bridge, position_manager, risk_manager, strategy, snapshot, datalogger)
@@ -164,7 +166,8 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
     finally:
         log("Graceful shutdown: saving state and closing resources", level="INFO")
         _save_checkpoint(position_manager, strategy)
-        datalogger.close()
+        clean = not _should_exit
+        datalogger.close(clean_exit=clean)
         bridge.shutdown()
         elapsed = time.time() - loop_start
         log(
