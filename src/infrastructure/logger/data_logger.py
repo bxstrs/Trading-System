@@ -46,25 +46,29 @@ class DataLogger:
         self.strategy_id = strategy_id
         self.symbol = symbol
 
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-
         # Filename encodes strategy + symbol for easy filtering and multi-strategy runs
-        trade_filename = f"trades_{symbol}_{strategy_id}_{ts}.csv.gz"
-        portfolio_filename = f"portfolio_{symbol}_{strategy_id}_{ts}.csv.gz"
+        trade_filename = f"trades_{symbol}_{strategy_id}.csv.gz"
+        portfolio_filename = f"portfolio_{symbol}_{strategy_id}.csv.gz"
 
         self.trade_filepath = os.path.join(base_path, trade_filename)
         self.portfolio_filepath = os.path.join(base_path, portfolio_filename)
 
-        # Open gzip-compressed files in text mode
-        self.trade_file = gzip.open(self.trade_filepath, "wt", newline="", encoding="utf-8")
-        self.portfolio_file = gzip.open(self.portfolio_filepath, "wt", newline="", encoding="utf-8")
+        # Detect whether files already exist BEFORE opening them
+        trade_is_new     = not os.path.exists(self.trade_filepath)
+        portfolio_is_new = not os.path.exists(self.portfolio_filepath)
 
-        self.trade_writer = csv.DictWriter(self.trade_file, fieldnames=self.TRADE_HEADERS)
+        # "at" = append text; creates file if missing, appends gzip member if present
+        self.trade_file     = gzip.open(self.trade_filepath,     "at", newline="", encoding="utf-8")
+        self.portfolio_file = gzip.open(self.portfolio_filepath, "at", newline="", encoding="utf-8")
+
+        self.trade_writer     = csv.DictWriter(self.trade_file,     fieldnames=self.TRADE_HEADERS)
         self.portfolio_writer = csv.DictWriter(self.portfolio_file, fieldnames=self.PORTFOLIO_HEADERS)
 
-        # Write headers
-        self.trade_writer.writeheader()
-        self.portfolio_writer.writeheader()
+        # Only write headers when creating a new file
+        if trade_is_new:
+            self.trade_writer.writeheader()
+        if portfolio_is_new:
+            self.portfolio_writer.writeheader()
 
         # Row cache for partial updates (setup → execution → result)
         self._pending_rows: dict = defaultdict(dict)

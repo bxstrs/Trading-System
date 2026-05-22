@@ -131,7 +131,6 @@ def try_entry(
     position_manager.track_entry_position(
         setup_id            = setup_id,
         position_ticket     = result.position_id,
-        open_time           = execution.fill_time,
         entry_slippage      = execution.slippage,
         entry_latency_ms    = execution.latency_ms,
     )

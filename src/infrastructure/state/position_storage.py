@@ -29,7 +29,7 @@ class PositionStorage:
                     } for pos in positions
                 ],
                 "metadata": {
-                    str(k[0]): {
+                    str(k): {
                         "setup_id": meta.get('setup_id'),
                         "entry_slippage": meta.get('entry_slippage', 0.0),
                         "entry_latency_ms": meta.get('entry_latency_ms', 0.0),

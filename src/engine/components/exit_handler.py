@@ -45,9 +45,16 @@ def try_exit(
             )
             # datalogger.log_trade_execution(execution)
 
-            deals   = bridge.history_deals_get(ticket=result.deal)
+            deals = bridge.history_deals_get_by_position(pos.ticket)
             key     = position_manager._get_position_key(pos)
             meta    = position_manager._position_metadata.get(key, {})
+
+            
+            entry_fill_time = meta.get("entry_fill_time")
+            if entry_fill_time and result.fill_time:
+                duration_minutes = (result.fill_time - entry_fill_time).total_seconds() / 60.0
+            else:
+                duration_minutes = None     # fallback
 
 
             # ── Build and log TradeResult ──────────────────────────────────────
@@ -64,7 +71,7 @@ def try_exit(
                 exit_ask                = snapshot.tick.ask,
                 total_fees              = sum(d.fee + d.swap + d.commission for d in deals) if deals else 0.0,
                 net_pnl                 = sum(d.profit for d in deals) if deals else 0.0,
-                duration_minutes        = (result.fill_time - pos.time).total_seconds() / 60.0,
+                duration_minutes        = duration_minutes,
                 risk_reward_ratio       = None,
                 max_adverse_excursion   = meta.get('mae', 0.0),
                 max_favorable_excursion = meta.get('mfe', 0.0),

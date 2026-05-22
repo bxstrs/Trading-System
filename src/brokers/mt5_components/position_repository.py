@@ -66,6 +66,7 @@ class PositionRepository:
                 timestamp   = datetime.fromtimestamp(trade_history.time, tz=timezone.utc),
                 volume      = trade_history.volume,
                 price       = trade_history.price,
+                entry       = trade_history.entry,
                 commission  = trade_history.commission,
                 swap        = trade_history.swap,
                 profit      = trade_history.profit,
@@ -75,34 +76,31 @@ class PositionRepository:
         return result
     
     def history_deals_get_by_position(self, position_id: int) -> List[TradeHistory]:
-
+        """Fetch all deals for a position (entry + exit) using DEAL_POSITION_ID filter."""
         if not self.connection_manager.ensure_connected():
             raise ConnectionError("Not connected to MT5")
-        
-        date_from = datetime(2000, 1, 1, tzinfo=timezone.utc)
-        date_to   = datetime.now(timezone.utc) + timedelta(days=1)
 
-        histories = mt5.history_deals_get(
-            date_from, date_to, position = position_id
-        )
+        histories = mt5.history_deals_get(position=position_id)   # no date range needed
 
         if not histories:
             return []
 
         result = []
-        for trade_history in histories:
-            history = TradeHistory(
-                ticket      = trade_history.ticket,
-                position_id = trade_history.position_id,
-                symbol      = trade_history.symbol,
-                timestamp   = datetime.fromtimestamp(trade_history.time, tz=timezone.utc),
-                volume      = trade_history.volume,
-                price       = trade_history.price,
-                commission  = trade_history.commission,
-                swap        = trade_history.swap,
-                profit      = trade_history.profit,
-                fee         = trade_history.fee,
-            )
-            result.append(history)
+
+        for d in histories:
+
+            result.append(TradeHistory(
+                ticket      = d.ticket,
+                position_id = d.position_id,
+                symbol      = d.symbol,
+                timestamp   = datetime.fromtimestamp(d.time, tz=timezone.utc),
+                volume      = d.volume,
+                price       = d.price,
+                entry       = d.entry,
+                commission  = d.commission,
+                swap        = d.swap,
+                profit      = d.profit,
+                fee         = d.fee,
+            ))      
         return result
 

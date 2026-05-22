@@ -15,7 +15,7 @@ class PositionManager:
         self.bridge = bridge
         self.datalogger = datalogger or DataLogger()
 
-        self._position_metadata: dict[tuple[int, int], dict] = {}
+        self._position_metadata: dict[int, dict] = {}
 
     # ------------------------------------------------------------------
     # Position Queries
@@ -24,24 +24,18 @@ class PositionManager:
     def get_strategy_positions(self, symbol: str, strategy_id: str) -> list[Position]:
 
         positions = self.bridge.get_positions(symbol)
+
         if not positions:
             return []
-
+        
         result = []
+
         for pos in positions:
-            match = pos.comment == str(strategy_id)
-            log(
-                f"[POSITION] ticket={pos.ticket} | raw_comment='{pos.comment}' | expected='{strategy_id}' | exact_match={match}",
-                level="DEBUG"
-            )
-            if not match:
+            if pos.comment != str(strategy_id):
                 continue
-
-            key  = self._get_position_key(pos)
-            meta = self._position_metadata.get(key, {})
             result.append(pos)
-
         log(f"[POSITION] {len(result)} position(s) matched strategy_id='{strategy_id}'", level="DEBUG")
+
         return result
     
 
@@ -50,51 +44,39 @@ class PositionManager:
     
 
     def load_metadata(self, metadata: dict) -> None:
-        """Restore metadata from checkpoint."""
+
         if not metadata:
             self._position_metadata = {}
-            log("[RECOVERY] No metadata found in checkpoint", level="INFO")
             return
-
+            
         restored = {}
+
         for k, v in metadata.items():
             try:
-                # reconstruct tuple key from string
-                restored_key = ast.literal_eval(k)
-
-                # ensure tuple format
-                if not isinstance(restored_key, tuple):
-                    raise ValueError(f"Invalid metadata key: {k}")
-
-                restored[restored_key] = v
-
-            except Exception as e:
-                log(f"[RECOVERY] Failed to restore metadata key {k}: {e}", level="ERROR")
-
+                restored[int(k)] = v
+            except (ValueError, TypeError) as e:
+                log(f"[RECOVERY] Bad metadata key '{k}': {e}", level="ERROR")
         self._position_metadata = restored
-        log(f"[RECOVERY] Restored metadata for {len(self._position_metadata)} positions", level="INFO")
+        log(f"[RECOVERY] Restored metadata for {len(restored)} positions", level="INFO")
 
 
     def remove_metadata(self, ticket: int):
-        keys_to_remove = [
-            key for key in self._position_metadata
-            if key[0] == int(ticket)
-        ]
-        for key in keys_to_remove:
+        key = int(ticket)
+        if key in self._position_metadata:
             del self._position_metadata[key]
-            log(f"[META] Removed metadata {key}", level="DEBUG")
+            log(f"[META] Removed metadata for ticket={ticket}", level="DEBUG")
 
 
-    def ensure_metadata(self, pos):
-        key = self._get_position_key(pos)
+    def ensure_metadata(self, pos) -> None:
+        key = int(pos.ticket)
         if key not in self._position_metadata:
-            log(f"[META] Creating placeholder for {key}", level="WARNING")
+            log(f"[META] Creating placeholder for ticket={pos.ticket}", level="WARNING")
             self._position_metadata[key] = {
-                "setup_id":   None,
-                "entry_price": pos.open_price,
-                "mae":        0.0,
-                "mfe":        0.0,
-                "recovered":  True,
+                'setup_id':   None,
+                'entry_price': pos.open_price,
+                'mae':        0.0,
+                'mfe':        0.0,
+                'recovered':  True,
             }
 
     def reconcile(self, mt5_positions, checkpoint_data, position_storage):
@@ -123,13 +105,12 @@ class PositionManager:
     def track_entry_position(
         self,
         position_ticket: int,
-        open_time: datetime,
         setup_id: str,
         entry_slippage: float = 0.0,
         entry_latency_ms: float = 0.0,
     ) -> None:
         """Register position metadata when order fills."""
-        metadata_key = self._build_position_key(position_ticket, open_time)
+        metadata_key = self._build_position_key(position_ticket)
 
         self._position_metadata[metadata_key] = {
             'setup_id':         setup_id,
@@ -147,40 +128,33 @@ class PositionManager:
     # ------------------------------------------------------------------
 
     def _update_mae_mfe(self, tick: TickData, pos: Position) -> None:
-        """Update max adverse/favorable excursion for open position."""
-        key = self._get_position_key(pos)
 
-
+        key = int(pos.ticket)
         if key not in self._position_metadata:
             return
-
+        
         meta        = self._position_metadata[key]
-        entry_price = pos.open_price or meta.get('entry_price')
+        entry_price = pos.open_price or meta.get('entry_fill_price')
 
         if entry_price is None:
             return
-
+        
         mid_price = (tick.bid + tick.ask) / 2
 
         if pos.direction == Direction.LONG:
             adverse   = entry_price - mid_price
             favorable = mid_price   - entry_price
-        elif pos.direction == Direction.SHORT:
+        else:
             adverse   = mid_price   - entry_price
             favorable = entry_price - mid_price
-        else:
-            return
 
         meta['mae'] = max(meta.get('mae', 0.0), adverse)
         meta['mfe'] = max(meta.get('mfe', 0.0), favorable)
 
     # ── Private helpers ────────────────────────────────────────────────
 
-    def _get_position_key(self, pos) -> tuple[int, int]:
-        t = pos.time
-        return (int(pos.ticket), int(t.timestamp()) if hasattr(t, 'timestamp') else int(t))
+    def _get_position_key(self, pos) -> int:
+        return int(pos.ticket)
 
-    def _build_position_key(self, ticket: int, open_time) -> tuple[int, int]:
-        if hasattr(open_time, 'timestamp'):
-            open_time = int(open_time.timestamp())
-        return (int(ticket), int(open_time))
+    def _build_position_key(self, ticket: int) -> int:
+        return int(ticket)

@@ -28,6 +28,7 @@ src/
 │       ├── data_handler.py
 │       ├── entry_handler.py
 │       ├── exit_handler.py
+│       ├── reconcile_handler.py
 │       ├── position_manager.py
 │       ├── risk_manager.py
 │       ├── trading_config.py
@@ -40,7 +41,6 @@ src/
 ├── infrastructure/
 │   ├── logger/
 │   │   ├── data_logger.py
-│   │   ├── heartbeat.py
 │   │   └── logger.py
 │   │
 │   ├── notifier/

@@ -40,7 +40,7 @@ def check_manual_closes(
     }
 
     # Tickets tracked in metadata
-    meta_tickets = {key[0] for key in position_manager._position_metadata}
+    meta_tickets = set(position_manager._position_metadata.keys())
 
     ghost_tickets = meta_tickets - live_tickets
     if not ghost_tickets:
@@ -48,14 +48,9 @@ def check_manual_closes(
 
     detected = 0
     for ticket in ghost_tickets:
-        meta_key = next(
-            (k for k in position_manager._position_metadata if k[0] == ticket),
-            None,
-        )
-        if meta_key is None:
+        meta = position_manager._position_metadata.get(ticket)
+        if meta is None:
             continue
-
-        meta = position_manager._position_metadata[meta_key]
 
         # Fetch all deals for this position to reconstruct exit
         try:
@@ -73,21 +68,14 @@ def check_manual_closes(
             )
             continue
 
-        # Separate entry deal (entry_type=0 BUY or 1 SELL) from exit deal
         # MT5 deal entry: 0=IN, 1=OUT, 2=IN/OUT
-        exit_deals = [d for d in deals if getattr(d, 'entry', -1) in (1, 2)]
-        if not exit_deals:
-            exit_deals = deals  # fallback: use all deals
-
-        exit_deal = exit_deals[-1]
+        entry_deals     = [d for d in deals if d.entry == 0]
+        exit_deal       = [d for d in deals if d.entry == 1][-1] or deals  # fallback to all
+        entry_time      = entry_deals[0].timestamp if entry_deals else exit_deal.timestamp
+        duration_min    = (exit_deal.timestamp - entry_time).total_seconds() / 60.0
 
         net_pnl    = sum(d.profit for d in deals)
         total_fees = sum((d.commission or 0) + (d.swap or 0) + (d.fee or 0) for d in deals)
-
-        # Duration: entry deal timestamp → exit deal timestamp
-        entry_deals = [d for d in deals if getattr(d, 'entry', -1) == 0]
-        entry_time  = entry_deals[0].timestamp if entry_deals else exit_deal.timestamp
-        duration_min = (exit_deal.timestamp - entry_time).total_seconds() / 60.0
 
         trade_result = TradeResult(
             setup_id                = meta.get("setup_id"),

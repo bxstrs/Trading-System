@@ -118,6 +118,7 @@ class TradeHistory:
     timestamp:          datetime
     volume:             float
     price:              float
+    entry:              int     = 0
     commission:         float   = 0.0
     swap:               float   = 0.0
     profit:             float   = 0.0
