@@ -16,11 +16,6 @@ class IncrementalVolatility(Indicator):
         self.closes     = deque(maxlen=bb_period)
         self.tr_values  = deque(maxlen=atr_period)
 
-        # Running sums for BB and ATR
-        self._sum       = 0.0
-        self._sum_sq    = 0.0
-        self._tr_sum    = 0.0
-        
         # Cached results
         self._bb_upper:     float | None = None
         self._bb_lower:     float | None = None
@@ -42,14 +37,7 @@ class IncrementalVolatility(Indicator):
     ) -> None:
 
         # ===== BOLLINGER UPDATE =====
-        if len(self.closes) == self.bb_period:
-            old = self.closes.popleft()
-            self._sum -= old
-            self._sum_sq -= old * old
-
         self.closes.append(close)
-        self._sum += close
-        self._sum_sq += close * close
 
         # ===== TRUE RANGE UPDATE =====
         tr = max(
@@ -58,18 +46,13 @@ class IncrementalVolatility(Indicator):
             abs(low - prev_close),
         )
 
-        if len(self.tr_values) == self.atr_period:
-            old_tr = self.tr_values.popleft()
-            self._tr_sum -= old_tr
-
         self.tr_values.append(tr)
-        self._tr_sum += tr
         
-        # ===== RECALCULATE (O(1)) =====
+        # ===== RECALCULATE =====
         self._recalculate()
     
     def _recalculate(self) -> None:
-        """Recalculate BB and ATR using running sums."""
+        """Recalculate BB and ATR without running sums (prevents drift)."""
 
         # ---- SHIFT CURRENT → PREVIOUS ----
         self._prev_bb_upper     = self._bb_upper
@@ -83,9 +66,10 @@ class IncrementalVolatility(Indicator):
             self._bb_lower  = None
             self._bb_middle = None
         else:
-            mean        = self._sum / n
-            variance    = (self._sum_sq / n) - (mean * mean)
-            variance    = max(variance, 0.0)
+            total       = sum(self.closes)
+            total_sq    = sum(x * x for x in self.closes)
+            mean        = total / n
+            variance    = max((total_sq / n) - (mean * mean), 0.0)
             std         = math.sqrt(variance)
 
             self._bb_middle = mean
@@ -94,7 +78,7 @@ class IncrementalVolatility(Indicator):
 
         # ---- ATR ----
         m = len(self.tr_values)
-        self._atr = self._tr_sum / m if m > 0 else 0.0
+        self._atr = sum(self.tr_values) / m if m > 0 else 0.0
     
      # ===== GETTERS =====
     
@@ -124,20 +108,14 @@ class BandwidthMACalculator(Indicator):
     def __init__(self, bw_ma_period: int = 150):
         self.bw_ma_period   = bw_ma_period
         self.values         = deque(maxlen=bw_ma_period)
-        self._sum           = 0.0
 
     def update(self, value: float) -> None:
-        if len(self.values) == self.bw_ma_period:
-            old = self.values.popleft()
-            self._sum -= old
-
         self.values.append(value)
-        self._sum += value
 
     def get_bandwidth_ma(self) -> float:
         if len(self.values) == 0:
             return 0.0
-        return self._sum / len(self.values)
+        return sum(self.values) / len(self.values)
 
     def is_ready(self) -> bool:
         return len(self.values) >= self.bw_ma_period

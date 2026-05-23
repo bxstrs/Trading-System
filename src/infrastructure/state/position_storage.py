@@ -16,6 +16,7 @@ class PositionStorage:
             metadata: dict,
             strategy_id: str, 
             risk_state: dict | None = None, 
+            strategy_state: dict | None = None,
         ):
         """Save open positions to disk for recovery after crash"""
         try:
@@ -39,6 +40,7 @@ class PositionStorage:
                     "consecutive_losses": 0,
                     "trading_halted":     False,
                 },
+                "strategy_state": strategy_state or {},
             }
             
             path = os.path.join(self.checkpoint_dir, f"{strategy_id}_positions.json")

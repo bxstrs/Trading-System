@@ -1,74 +1,35 @@
 '''src/utils/logger.py'''
-import time
-import inspect
 import os
+import sys
+from loguru import logger
+
+# Add custom level
+try:
+    logger.level("SIGNAL", no=25, color="<green>")
+except Exception:
+    pass
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+valid_levels = ["TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL", "SIGNAL"]
+if LOG_LEVEL not in valid_levels:
+    LOG_LEVEL = "INFO"
 
-LEVEL_PRIORITY = {
-    "DEBUG": 10,
-    "INFO": 20,
-    "SIGNAL": 25,
-    "WARNING": 30,
-    "ERROR": 40,
-    "CRITICAL": 50,
-}
+# Configure loguru: terminal + file
+logger.remove() # remove default handler
+logger.add(sys.stdout, level=LOG_LEVEL, colorize=True)
+os.makedirs("logs", exist_ok=True)
+logger.add("logs/trading_{time:YYYY-MM-DD}.log", rotation="100 MB", retention="30 days", level=LOG_LEVEL)
 
-DEFAULT_LEVEL = "INFO"
-
-# -----------------------------------------------------------------------------
-# Safe logger
-# -----------------------------------------------------------------------------
-
-def log(msg: str, level: str = DEFAULT_LEVEL, source: str | None = None) -> None:
-
+def log(msg: str, level: str = "INFO", source: str | None = None) -> None:
     try:
-        # Normalize level
         level = str(level).upper()
-
-        # Fallback for invalid level
-        if level not in LEVEL_PRIORITY:
-            level = DEFAULT_LEVEL
-
-        current_log_level = LOG_LEVEL
-
-        # Fallback for invalid env value
-        if current_log_level not in LEVEL_PRIORITY:
-            current_log_level = DEFAULT_LEVEL
-
-        # Filter by log level
-        if LEVEL_PRIORITY[level] < LEVEL_PRIORITY[current_log_level]:
-            return
-
-        # Auto source detection
-        if source is None:
-            try:
-                frame = inspect.stack()[1]
-
-                file_path = frame.filename
-                file_name = os.path.basename(file_path)
-                func_name = frame.function
-                line_no = frame.lineno
-
-                source = f"{file_name}:{func_name}:{line_no}"
-
-            except Exception:
-                source = "unknown"
-
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-
-        print(
-            f"[{timestamp}] [{level}] [{source}] {msg}",
-            flush=True
-        )
-
+        if level not in valid_levels:
+            level = "INFO"
+            
+        if source:
+            msg = f"[{source}] {msg}"
+            
+        logger.opt(depth=1).log(level, msg)
     except Exception as e:
         # FINAL safety net
-        # Logger must NEVER crash trading engine
-        try:
-            print(
-                f"[LOGGER FAILURE] {e} | original_msg={msg}",
-                flush=True
-            )
-        except Exception:
-            pass
+        print(f"[LOGGER FAILURE] {e} | original_msg={msg}", flush=True)

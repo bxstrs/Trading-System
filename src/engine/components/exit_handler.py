@@ -18,17 +18,17 @@ def try_exit(
 
     for pos in positions:
 
-        exit_signal = strategy.check_exit(
+        should_exit, exit_reason = strategy.check_exit(
             pos, 
             snapshot
         )
 
-        if not exit_signal:
+        if not should_exit:
             continue
         
-        if exit_signal:
+        if should_exit:
             exit_price = (snapshot.tick.bid if pos.direction.name == "LONG" else snapshot.tick.ask)
-            log(f"[EXIT] {pos.direction} at {exit_price}",level="INFO")
+            log(f"[EXIT] {pos.direction} at {exit_price} (reason: {exit_reason})",level="INFO")
             
             result = bridge.close_position(pos)
             
@@ -80,7 +80,7 @@ def try_exit(
                 volume                  = result.fill_volume,
                 exit_price              = result.fill_price,
                 exit_time               = result.fill_time,
-                exit_reason             = "bollinger_exit",
+                exit_reason             = exit_reason,
                 exit_bid                = snapshot.tick.bid,
                 exit_ask                = snapshot.tick.ask,
                 total_fees              = sum((d.fee or 0.0) + (d.swap or 0.0) + (d.commission or 0.0)for d in deals) if deals else 0.0,

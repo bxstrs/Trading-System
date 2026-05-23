@@ -57,9 +57,9 @@ class OrderExecutor:
                 result = mt5.order_send(request)
                 status = map_retcode(result.retcode)
 
-                if result and status == ExecutionStatus.DONE:
+                if result and status in (ExecutionStatus.DONE, ExecutionStatus.PARTIAL):
                     fill_time = datetime.now(timezone.utc)
-                    log(f"Order success (attempt {attempt}): {result}", level="INFO")
+                    log(f"Order {'fully' if status == ExecutionStatus.DONE else 'partially'} filled (attempt {attempt}): {result}", level="INFO")
                     return TradeExecution(
                             setup_id            = setup.setup_id,
                             position_id         = result.order,
@@ -126,9 +126,9 @@ class OrderExecutor:
                 result = mt5.order_send(request)
                 status = map_retcode(result.retcode)
 
-                if result and status == ExecutionStatus.DONE:
+                if result and status in (ExecutionStatus.DONE, ExecutionStatus.PARTIAL):
                     fill_time = datetime.now(timezone.utc)
-                    log(f"Order success (attempt {attempt}): {result}", level="INFO")
+                    log(f"Order {'fully' if status == ExecutionStatus.DONE else 'partially'} filled (attempt {attempt}): {result}", level="INFO")
                     return TradeExecution(
                             setup_id            = None,
                             position_id         = result.request.position,

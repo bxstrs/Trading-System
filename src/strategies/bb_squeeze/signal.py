@@ -200,10 +200,12 @@ class BBSqueeze(Strategy):
     # Exit logic
     # ─────────────────────────────────────────────────────────────
 
-    def check_exit(self, pos: Position, snapshot: MarketSnapshot) -> bool:
+    def check_exit(self, pos: Position, snapshot: MarketSnapshot) -> tuple[bool, str]:
         """
         Close a LONG when bid falls to/below the lower band.
         Close a SHORT when ask rises to/above the upper band.
+
+        Returns (should_exit, reason)
 
         Bug #6 fix: bands are now always current because update_indicators()
         is called unconditionally from forward.py every bar, not just when
@@ -212,15 +214,17 @@ class BBSqueeze(Strategy):
         prev_upper, prev_lower, _ = self.indicators.get_previous_bollinger_bands()
 
         if prev_upper is None or prev_lower is None:
-            return False
+            return False, ""
 
         if pos.direction == Direction.LONG:
-            return snapshot.tick.bid <= prev_lower
+            if snapshot.tick.bid <= prev_lower:
+                return True, "bollinger_lower_cross"
 
         if pos.direction == Direction.SHORT:
-            return snapshot.tick.ask >= prev_upper
+            if snapshot.tick.ask >= prev_upper:
+                return True, "bollinger_upper_cross"
 
-        return False
+        return False, ""
 
     # ─────────────────────────────────────────────────────────────
     # Post-trade state update
@@ -230,6 +234,13 @@ class BBSqueeze(Strategy):
         if trade.net_pnl is None:
             return
         self._last_trade_was_loss = trade.net_pnl < 0
+
+    def save_state(self) -> dict:
+        return {"last_trade_was_loss": self._last_trade_was_loss}
+
+    def restore_state(self, state: dict) -> None:
+        if state:
+            self._last_trade_was_loss = state.get("last_trade_was_loss", False)
 
     # ─────────────────────────────────────────────────────────────
     # Indicator snapshot (for DataLogger)

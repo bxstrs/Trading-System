@@ -32,12 +32,8 @@ def check_manual_closes(
         return 0
 
     # Live tickets that belong to this strategy
-    live_positions = bridge.get_positions(config.symbol)
-    live_tickets = {
-        int(p.ticket)
-        for p in live_positions
-        if p.magic == strategy.magic_number
-    }
+    live_positions = position_manager.get_strategy_positions(config.symbol, strategy.magic_number)
+    live_tickets = {int(p.ticket) for p in live_positions}
 
     # Tickets tracked in metadata
     meta_tickets = set(position_manager._position_metadata.keys())

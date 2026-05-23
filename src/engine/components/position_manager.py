@@ -13,13 +13,18 @@ class PositionManager:
         self.bridge    = bridge
         self.datalogger = datalogger or DataLogger()
         self._position_metadata: dict[int, dict] = {}
+        self._cached_positions: list[Position] | None = None
 
     # ------------------------------------------------------------------
     # Position Queries
     # ------------------------------------------------------------------
 
+    def refresh_cache(self, symbol: str) -> None:
+        """Fetch and cache live positions from MT5 once per tick."""
+        self._cached_positions = self.bridge.get_positions(symbol)
+
     def get_strategy_positions(self, symbol: str, magic_number: int) -> list[Position]:
-        positions = self.bridge.get_positions(symbol)
+        positions = self._cached_positions if self._cached_positions is not None else self.bridge.get_positions(symbol)
         if not positions:
             return []
 

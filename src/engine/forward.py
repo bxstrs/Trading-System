@@ -110,6 +110,9 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
             iteration_start = time.time()
             entry_executed  = False
 
+            # ── Refresh position cache ────────────────────────────────
+            position_manager.refresh_cache(_trading_config.symbol)
+
             # ── Periodic checkpoint (interval-based) ──────────────────
             if ticks_since_checkpoint >= _trading_config.checkpoint_interval:
                 _save_checkpoint(position_manager, risk_manager, strategy) 
@@ -291,6 +294,7 @@ def _save_checkpoint(
         strategy_id = strategy.strategy_id,
         metadata    = position_manager.serialize_metadata(),
         risk_state  = risk_manager.save_state(),    
+        strategy_state = getattr(strategy, "save_state", lambda: {})(),
     )
 
 
@@ -324,6 +328,9 @@ def _run_recovery(
 
     risk_state = checkpoint_data.get("risk_state", {})
     risk_manager.restore_state(risk_state)
+    
+    if hasattr(strategy, "restore_state"):
+        strategy.restore_state(checkpoint_data.get("strategy_state", {}))
 
 
 def _heartbeat_logger(counter: int, tick, current_bar_time=None) -> None:
