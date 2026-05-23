@@ -150,6 +150,8 @@ def try_entry(
         position_ticket     = result.position_id,
         entry_slippage      = execution.slippage,
         entry_latency_ms    = execution.latency_ms,
+        entry_fill_price    = execution.fill_price,
+        entry_fill_time     = execution.fill_time,
     )
     return True
 
@@ -170,7 +172,7 @@ def resolve_pending_intents(
       A) MT5 has a matching position → fill succeeded, register metadata.
       B) No matching MT5 position    → fill never happened, mark abandoned.
     """
-    
+
     pending = intent_store.get_pending_intents()
     if not pending:
         return

@@ -221,14 +221,15 @@ def _notify(notifier: LineNotifier, message: str) -> None:
         notifier.notify(message)
  
 def _save_checkpoint(position_manager: PositionManager, strategy) -> None:
-    """Persist current open positions to disk for crash recovery."""
     positions = position_manager.get_strategy_positions(
-        _trading_config.symbol, strategy.strategy_id
+        _trading_config.symbol,
+        strategy.strategy_id
     )
+
     _position_storage.save_positions(
-        [pos for pos in positions],
-        strategy_id = strategy.strategy_id,
-        metadata = position_manager.export_metadata(),
+        positions,
+        strategy_id=strategy.strategy_id,
+        metadata=position_manager.serialize_metadata(),
     )
  
 def _run_recovery(
@@ -241,8 +242,11 @@ def _run_recovery(
     if not checkpoint_data:
         return
 
-    # restore metadata
-    position_manager.load_metadata(checkpoint_data.get("metadata", {}))
+    position_manager.load_metadata(
+        PositionManager.deserialize_metadata(
+            checkpoint_data.get("metadata", {})
+        )
+    )
 
     live_positions = bridge.get_positions(_trading_config.symbol)
 
