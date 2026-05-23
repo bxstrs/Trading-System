@@ -41,12 +41,13 @@ def check_manual_closes(
 
     # Tickets tracked in metadata
     meta_tickets = set(position_manager._position_metadata.keys())
-
     ghost_tickets = meta_tickets - live_tickets
+
     if not ghost_tickets:
         return 0
 
     detected = 0
+
     for ticket in ghost_tickets:
         meta = position_manager._position_metadata.get(ticket)
         if meta is None:
@@ -56,7 +57,7 @@ def check_manual_closes(
             position_manager.remove_metadata(ticket)
             continue
 
-        # Fetch all deals for this position to reconstruct exit
+        # ── Fetch deal history ────────────────────────────────────────
         try:
             deals = bridge.history_deals_get_by_position(ticket)
         except Exception as exc:
@@ -64,25 +65,46 @@ def check_manual_closes(
             continue
 
         if not deals:
-            # MT5 history not yet available (race condition on very fast closes).
-            # Leave metadata intact; will be caught on next tick.
+            # MT5 history not yet available (race condition on very fast closes). Leave metadata intact; will be caught on next tick.
             log(
                 f"[RECONCILE] No deal history yet for ticket={ticket}, will retry",
                 level="WARNING",
             )
             continue
         
-        meta["reconciled"] = True
-        position_manager._position_metadata[ticket] = meta
-        
         # MT5 deal entry: 0=IN, 1=OUT, 2=IN/OUT
         entry_deals     = [d for d in deals if d.entry == 0]
-        exit_deal       = [d for d in deals if d.entry == 1][-1] or deals  # fallback to all
-        entry_time      = entry_deals[0].timestamp if entry_deals else exit_deal.timestamp
-        duration_min    = (exit_deal.timestamp - entry_time).total_seconds() / 60.0
+        exit_deals      = [d for d in deals if d.entry == 1]
+        if not exit_deals:
+            inout_deals = [d for d in deals if d.entry == 2]
+            if inout_deals:
+                exit_deal = inout_deals[-1]
+            else:
+                log(
+                    f"[RECONCILE] No exit deal for ticket={ticket} — will retry next tick",
+                    level="WARNING",
+                )
+                continue
+        else:
+            exit_deal = exit_deals[-1]  # most recent exit (handles partial closes)
 
-        net_pnl    = sum(d.profit for d in deals)
-        total_fees = sum((d.commission or 0) + (d.swap or 0) + (d.fee or 0) for d in deals)
+        # ── Calculate duration ────────────────────────────────────────
+        entry_time = None
+        if entry_deals:
+            entry_time = entry_deals[0].timestamp
+        else:
+            entry_time = meta.get("entry_fill_time")  # Bug #3d fix
+ 
+        duration_min = None
+        if entry_time and exit_deal.timestamp:
+            try:
+                duration_min = (exit_deal.timestamp - entry_time).total_seconds() / 60.0
+            except Exception:
+                duration_min = None
+ 
+        # ── Aggregate financials ──────────────────────────────────────
+        net_pnl    = sum(d.profit     for d in deals)
+        total_fees = sum((d.commission or 0.0) + (d.swap or 0.0) + (d.fee or 0.0)for d in deals)
 
         trade_result = TradeResult(
             setup_id                = meta.get("setup_id"),
@@ -105,16 +127,25 @@ def check_manual_closes(
             status                  = TradeStatus.CLOSED,
         )
 
-        datalogger.log_trade_result(trade_result)
-        risk_manager.update(trade_result)
-        strategy.update_trade_result(trade_result)
+        try:
+            datalogger.log_trade_result(trade_result)
+            risk_manager.update(trade_result)
+            strategy.update_trade_result(trade_result)
+        except Exception as exc:
+            log(
+                f"[RECONCILE] Error during state update for ticket={ticket}: {exc}",
+                level="ERROR",
+            )
+            # Don't mark reconciled — we'll retry. This prevents silent data loss.
+            continue
+ 
+        # ── Bug #3c fix: only clean up AFTER successful processing ────
         position_manager.remove_metadata(ticket)
         detected += 1
-
+ 
         log(
-            f"[RECONCILE] Manual close detected — ticket={ticket}, "
-            f"exit={exit_deal.price:.5f}, pnl={net_pnl:.2f}",
+            f"[RECONCILE] Manual/external close — ticket={ticket}, exit={exit_deal.price:.5f}, pnl={net_pnl:.2f}, duration={f'{duration_min:.1f}min' if duration_min else 'unknown'}",
             level="WARNING",
         )
-
+ 
     return detected
