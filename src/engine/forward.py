@@ -99,7 +99,7 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
 
             # ── Periodic checkpoint (interval-based) ──────────────────
             if ticks_since_checkpoint >= _trading_config.checkpoint_interval:
-                _save_checkpoint(position_manager, risk_manager, strategy)  # Bug #8B fix: correct order
+                _save_checkpoint(position_manager, risk_manager, strategy) 
                 ticks_since_checkpoint = 0
 
             # ── Periodic abandoned-row flush ──────────────────────────
@@ -120,10 +120,6 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
                 snapshot = get_market_snapshot(bridge, _trading_config, force_full=False)
                 _heartbeat_logger(tick_counter, snapshot.tick, current_bar_time)
 
-            # ── Bug #6 fix: update indicators every bar, unconditionally ──
-            # Original: indicators only updated inside generate_signal(),
-            # which is blocked when a position is open. check_exit() was
-            # reading stale bands for the entire duration of an open trade.
             if snapshot.history and current_bar_time != strategy._current_bar_time:
                 strategy.update_indicators(snapshot.history)
                 strategy._current_bar_time = current_bar_time
@@ -165,9 +161,7 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
             had_position = current_has_position
 
             # ── Entry attempt ─────────────────────────────────────────
-            # Bug #14 fix: spread is only fetched when entry is possible.
-            # Original fetched spread every tick (10 MT5 API calls/sec at 100ms sleep),
-            # which wastes quota and becomes critical at scale (50 symbols).
+
             if not had_position and last_entry_bar_time != current_bar_time:
                 spread = bridge.get_spread(_trading_config.symbol)
                 entry_executed = try_entry(
@@ -270,18 +264,10 @@ def _notify(notifier: LineNotifier, message: str) -> None:
 
 def _save_checkpoint(
     position_manager: PositionManager,
-    risk_manager:     RiskManager,          # Bug #8B fix: was swapped with strategy
+    risk_manager:     RiskManager,          
     strategy,
 ) -> None:
-    """
-    Save positions, metadata, and risk state atomically.
-    Called:
-      - On tick interval (checkpoint_interval_ticks)
-      - Immediately after every fill          (Bug #2 fix)
-      - Immediately after every close         (Bug #2 fix)
-      - Immediately after reconcile detection (Bug #2 fix)
-      - On graceful shutdown
-    """
+
     positions = position_manager.get_strategy_positions(
         _trading_config.symbol,
         strategy.strategy_id,
@@ -291,7 +277,7 @@ def _save_checkpoint(
         positions,
         strategy_id = strategy.strategy_id,
         metadata    = position_manager.serialize_metadata(),
-        risk_state  = risk_manager.save_state(),    # Bug #8 fix: was not saved in original
+        risk_state  = risk_manager.save_state(),    
     )
 
 
@@ -323,9 +309,6 @@ def _run_recovery(
     live_positions = bridge.get_positions(_trading_config.symbol)
     position_manager.reconcile(live_positions, checkpoint_data, _position_storage)
 
-    # ── Bug #8A fix: actually call restore_state() with the saved state ──
-    # Original code:  `risk_manager.restore_state`   ← just accessed method object, never called
-    # Fixed:
     risk_state = checkpoint_data.get("risk_state", {})
     risk_manager.restore_state(risk_state)
 
