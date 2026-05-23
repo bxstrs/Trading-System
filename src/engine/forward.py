@@ -1,6 +1,7 @@
 import signal
 import time
 import traceback
+import os
 
 from src.brokers.mt5                            import MT5Bridge
 from src.domain.exceptions                      import MarketDataUnavailable
@@ -27,17 +28,19 @@ from src.infrastructure.state.intent_storage      import IntentStore
 _trading_config: TradingConfig  = load_trading_config()
 _position_storage: PositionStorage = PositionStorage()
 _should_exit: bool = False
+# ── Async-signal-safe shutdown pipe ─────────────────────
+_shutdown_r, _shutdown_w = os.pipe()
+os.set_blocking(_shutdown_r, False)
 
 
 # ── Signal handling ───────────────────────────────────────────────────────────
 
 def _signal_handler(signum, frame) -> None:
-    global _should_exit
-    _should_exit = True
-    # NOTE: log() is not async-signal-safe. For production, use os.write(1, b"...\n")
-    # and defer actual shutdown logging to after the loop exits.
-    log(f"Received shutdown signal ({signum})", level="INFO")
-
+    # async-signal-safe: ONLY os.write allowed
+    try:
+        os.write(_shutdown_w, b"X")
+    except OSError:
+        pass
 
 # ── Core loop ─────────────────────────────────────────────────────────────────
 
@@ -91,7 +94,17 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
     )
 
     try:
-        while not _should_exit:
+        while True:
+            # ── async shutdown check (pipe) ─────────────────────────
+            try:
+                os.read(_shutdown_r, 1)
+                _should_exit = True
+            except BlockingIOError:
+                pass
+
+            if _should_exit:
+                break
+
             tick_counter           += 1
             ticks_since_checkpoint += 1
             iteration_start = time.time()

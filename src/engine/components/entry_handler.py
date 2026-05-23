@@ -39,7 +39,7 @@ def try_entry(
     if not risk_manager.can_trade():
         return False
  
-    if position_manager.has_open_position(config.symbol, strategy.strategy_id):
+    if position_manager.has_open_position(config.symbol, strategy.magic_number):
         return False
  
     # ── Signal generation ─────────────────────────────────────────────
