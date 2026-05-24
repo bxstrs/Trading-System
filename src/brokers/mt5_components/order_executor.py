@@ -1,7 +1,6 @@
 """MT5 Order execution - handles sending and closing trades."""
 import time
 import MetaTrader5 as mt5
-import uuid
 
 from datetime                                   import datetime, timezone
 from src.domain.enums                           import Direction, ExecutionStatus

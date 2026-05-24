@@ -1,4 +1,3 @@
-"""src/engine/marketstate_builder.py"""
 import time
 from datetime import datetime, timezone
 

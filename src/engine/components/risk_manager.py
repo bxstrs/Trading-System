@@ -1,8 +1,4 @@
-from src.config.loader import load_yaml
-from src.infrastructure.logger.logger import log
-from src.domain.trading import TradeResult
-
-from src.config.loader import load_yaml
+from src.config.loader import load_risk_yaml
 from src.infrastructure.logger.logger import log
 from src.domain.trading import TradeResult
  
@@ -10,7 +6,7 @@ from src.domain.trading import TradeResult
 class RiskManager:
  
     def __init__(self):
-        risk_config = load_yaml("risk.yaml")
+        risk_config = load_risk_yaml()
         self.config = risk_config
  
         self.enable_consecutive_loss_limit = self.config.get("enable_consecutive_loss_limit", False)

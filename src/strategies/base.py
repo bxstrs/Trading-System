@@ -32,7 +32,7 @@ class Strategy(ABC):
         self,
         trade,
         market_state: MarketSnapshot,
-    ) -> bool:
+    ) -> tuple[bool, str]:
         """
         Return True if trade should be closed
         """

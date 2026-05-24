@@ -124,7 +124,7 @@ def try_entry(
                 )
                 return False
         except Exception as exc:
-            log(f"[ENTRY] Pre-send spread check failed: {exc} — proceeding", level="WARNING")\
+            log(f"[ENTRY] Pre-send spread check failed: {exc} — proceeding", level="WARNING")
             
     # ── Submit order ──────────────────────────────────────────────────
     result = bridge.send_order(
@@ -183,7 +183,7 @@ def resolve_pending_intents(
     config,
     strategy,
 ) -> None:
-
+  
     pending = intent_store.get_pending_intents()
     if not pending:
         return
@@ -203,48 +203,72 @@ def resolve_pending_intents(
     already_tracked = set(position_manager._position_metadata.keys())
  
     for intent in pending:
-        intent_id = intent["intent_id"]
-        setup_id  = intent.get("setup_id", intent_id)
+        intent_id        = intent["intent_id"]
+        setup_id         = intent.get("setup_id", intent_id)
+        intent_direction = intent.get("direction", "")
  
         log(f"[INTENT] Resolving intent={intent_id} setup={setup_id}", level="WARNING")
  
-        # Find a live position with our magic number that has no metadata yet
-        matched = None
-        for pos in live_positions:
-            if (
-                pos.magic == strategy.magic_number
-                and int(pos.ticket) not in already_tracked
-            ):
-                matched = pos
-                break
+        # ── Filter candidates by magic, direction, and untracked ─────
+        candidates = [
+            pos for pos in live_positions
+            if pos.magic == strategy.magic_number
+            and int(pos.ticket) not in already_tracked
+            and pos.direction.value == intent_direction
+        ]
  
-        if matched is not None:
-            log(
-                f"[INTENT] Case A: fill confirmed → ticket={matched.ticket}. "
-                f"Registering metadata.",
-                level="WARNING",
-            )
-            intent_store.mark_filled(intent_id, position_id=matched.ticket)
-            position_manager.track_entry_position(
-                setup_id         = setup_id,
-                position_ticket  = matched.ticket,
-                entry_slippage   = 0.0,           # unknown after crash
-                entry_latency_ms = 0.0,           # unknown after crash
-                entry_fill_price = matched.open_price,
-                entry_fill_time  = matched.time,
-            )
-            already_tracked.add(int(matched.ticket))
-            log(f"[INTENT] Recovered position ticket={matched.ticket}", level="INFO")
-        else:
+        if not candidates:
             log(
                 f"[INTENT] Case B: no matching live position for intent={intent_id} "
-                f"— order never filled, marking ABANDONED",
+                f"(direction={intent_direction}) — order never filled, marking ABANDONED",
                 level="WARNING",
             )
             intent_store.mark_abandoned(
                 intent_id,
                 reason="no matching live position found on startup recovery",
             )
+            continue
+ 
+        if len(candidates) > 1:
+            # Tiebreak: pick the position whose open time is closest to
+            # when the intent was written (intent["created_at"]).
+            log(
+                f"[INTENT] {len(candidates)} candidate(s) for intent={intent_id} "
+                f"— picking by open time closest to intent creation",
+                level="WARNING",
+            )
+            created_at_str = intent.get("created_at", "")
+            try:
+                intent_time = datetime.fromisoformat(created_at_str)
+                if intent_time.tzinfo is None:
+                    intent_time = intent_time.replace(tzinfo=timezone.utc)
+                candidates.sort(
+                    key=lambda p: abs((p.time - intent_time).total_seconds())
+                )
+            except (ValueError, TypeError):
+                # created_at missing or unparseable — fall back to oldest first
+                candidates.sort(key=lambda p: p.time)
+ 
+        matched = candidates[0]
+ 
+        log(
+            f"[INTENT] Case A: fill confirmed → ticket={matched.ticket}. "
+            f"Registering metadata.",
+            level="WARNING",
+        )
+        intent_store.mark_filled(intent_id, position_id=matched.ticket)
+        position_manager.track_entry_position(
+            setup_id         = setup_id,
+            position_ticket  = matched.ticket,
+            entry_slippage   = 0.0,           # unknown after crash
+            entry_latency_ms = 0.0,           # unknown after crash
+            entry_fill_price = matched.open_price,
+            entry_fill_time  = matched.time,
+        )
+        already_tracked.add(int(matched.ticket))
+        log(f"[INTENT] Recovered position ticket={matched.ticket}", level="INFO")
+ 
+ 
  
  
 # ── Private helpers ───────────────────────────────────────────────────────────

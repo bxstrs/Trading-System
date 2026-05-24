@@ -100,11 +100,10 @@ class BBSqueeze(Strategy):
 
         # ── Readiness guard ──────────────────────────────────────────
         if not (self.indicators.is_ready() and self.bandwidth_ma.is_ready()):
-            return log(
-                f"[BB] Indicators not ready — "
-                f"bb:{self.indicators.is_ready()}, bw_ma:{self.bandwidth_ma.is_ready()}",
+            log(f"[BB] Indicators not ready — bb:{self.indicators.is_ready()}, bw_ma:{self.bandwidth_ma.is_ready()}",
                 level="DEBUG",
             )
+            return None
 
         # ── Spread guard ─────────────────────────────────────────────
         if spread > self.config.max_spread:

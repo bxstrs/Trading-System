@@ -47,6 +47,13 @@ def _signal_handler(signum, frame) -> None:
 def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
 
     global _should_exit
+
+    while True:
+        try:
+            os.read(_shutdown_r, 1)
+        except BlockingIOError:
+            break
+
     _should_exit = False
 
     signal.signal(signal.SIGTERM, _signal_handler)
@@ -64,7 +71,7 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
 
     strategy         = load_strategy(strategy_name)
     datalogger       = DataLogger(strategy_id=strategy.strategy_id, symbol=_trading_config.symbol)
-    intent_store     = IntentStore()                                  # Bug #1 fix
+    intent_store     = IntentStore()                                
     position_manager = PositionManager(bridge, datalogger=datalogger)
     risk_manager     = RiskManager()
 
@@ -90,7 +97,7 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
     last_flush_time        = time.time()
     loop_start             = time.time()
     had_position           = position_manager.has_open_position(
-        _trading_config.symbol, strategy.strategy_id
+        _trading_config.symbol, strategy.magic_number
     )
 
     try:
@@ -142,7 +149,7 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
 
             # ── MAE/MFE update — every tick ──────────────────────────
             for pos in position_manager.get_strategy_positions(
-                _trading_config.symbol, strategy.strategy_id
+                _trading_config.symbol, strategy.magic_number
             ):
                 position_manager._update_mae_mfe(snapshot.tick, pos)
 
@@ -168,7 +175,7 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
 
             # ── Detect position just closed → block re-entry this bar ──
             current_has_position = position_manager.has_open_position(
-                _trading_config.symbol, strategy.strategy_id
+                _trading_config.symbol, strategy.magic_number
             )
             if had_position and not current_has_position:
                 log("[POSITION CLOSED] Blocking re-entry for current bar.", level="INFO")
@@ -189,13 +196,12 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
                     spread,
                     datalogger,
                     _trading_config,
-                    intent_store,                                    # Bug #1 fix
+                    intent_store,                                    
                 )
 
             if entry_executed:
                 had_position        = True
                 last_entry_bar_time = current_bar_time
-                # Bug #2 fix: checkpoint immediately after fill
                 _save_checkpoint(position_manager, risk_manager, strategy)
                 ticks_since_checkpoint = 0
                 log(f"[ENTRY] Signal executed in {time.time() - iteration_start:.3f}s")
@@ -239,34 +245,42 @@ def run_forward(strategy_name: str = "bb_squeeze") -> None:
     notifier = LineNotifier()
     attempt  = 0
 
-    while (
-        _trading_config.max_restart_attempts < 0
-        or attempt < _trading_config.max_restart_attempts
-    ):
-        attempt += 1
-        try:
-            main_loop(strategy_name, notifier)
-            break  # clean exit — don't restart
-        except KeyboardInterrupt:
-            log("Forward runner stopped by user", level="INFO")
-            break
-        except Exception as exc:
-            message = (
-                f"Forward runner crashed (attempt {attempt}): {exc}. "
-                f"Restarting in {_trading_config.restart_delay}s."
-            )
-            log(message, level="ERROR")
-            _notify(notifier, message)
-            traceback.print_exc()
-
-            if (
-                _trading_config.max_restart_attempts >= 0
-                and attempt >= _trading_config.max_restart_attempts
-            ):
-                log("Reached max restart attempts, exiting", level="ERROR")
+    try:
+        while (
+            _trading_config.max_restart_attempts < 0
+            or attempt < _trading_config.max_restart_attempts
+        ):
+            attempt += 1
+            try:
+                main_loop(strategy_name, notifier)
+                break  # clean exit — don't restart
+            except KeyboardInterrupt:
+                log("Forward runner stopped by user", level="INFO")
                 break
+            except Exception as exc:
+                message = (
+                    f"Forward runner crashed (attempt {attempt}): {exc}. "
+                    f"Restarting in {_trading_config.restart_delay}s."
+                )
+                log(message, level="ERROR")
+                _notify(notifier, message)
+                traceback.print_exc()
 
-            time.sleep(_trading_config.restart_delay)
+                if (
+                    _trading_config.max_restart_attempts >= 0
+                    and attempt >= _trading_config.max_restart_attempts
+                ):
+                    log("Reached max restart attempts, exiting", level="ERROR")
+                    break
+
+                time.sleep(_trading_config.restart_delay)
+
+    finally:
+        for fd in (_shutdown_r, _shutdown_w):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
 
     log("Forward runner exiting", level="INFO")
 
@@ -286,7 +300,7 @@ def _save_checkpoint(
 
     positions = position_manager.get_strategy_positions(
         _trading_config.symbol,
-        strategy.strategy_id,
+        strategy.magic_number,
     )
 
     _position_storage.save_positions(

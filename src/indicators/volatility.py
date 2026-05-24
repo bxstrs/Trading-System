@@ -1,4 +1,3 @@
-'''src/indicators/incremental/volatility_live.py'''
 import math
 from collections import deque
 from typing import Tuple
