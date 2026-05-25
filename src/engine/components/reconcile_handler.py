@@ -124,18 +124,13 @@ def check_manual_closes(
         )
 
         try:
-            datalogger.log_trade_result(trade_result)
             risk_manager.update(trade_result)
             strategy.update_trade_result(trade_result)
         except Exception as exc:
-            log(
-                f"[RECONCILE] Error during state update for ticket={ticket}: {exc}",
-                level="ERROR",
-            )
-            # Don't mark reconciled — we'll retry. This prevents silent data loss.
+            log(f"[RECONCILE] State update failed for ticket={ticket}: {exc}", level="ERROR")
             continue
- 
-        # ── Bug #3c fix: only clean up AFTER successful processing ────
+
+        datalogger.log_trade_result(trade_result)
         position_manager.remove_metadata(ticket)
         detected += 1
  

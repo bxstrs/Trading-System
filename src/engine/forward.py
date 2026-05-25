@@ -159,7 +159,6 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
                 strategy, snapshot, datalogger, _trading_config,
             )
             if reconciled > 0:
-                # Bug #2 fix: checkpoint immediately after any state change
                 _save_checkpoint(position_manager, risk_manager, strategy)
                 ticks_since_checkpoint = 0
 
@@ -226,17 +225,18 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
 
     finally:
         log("Graceful shutdown: saving state and closing resources", level="INFO")
-        _save_checkpoint(position_manager, risk_manager, strategy)  # Bug #8B fix
-        clean = not _should_exit
-        datalogger.close(clean_exit=clean)
+        if 'position_manager' in dir() and 'risk_manager' in dir() and 'strategy' in dir():
+            _save_checkpoint(position_manager, risk_manager, strategy)
+        if 'datalogger' in dir():
+            datalogger.close(clean_exit=not _should_exit)
         bridge.shutdown()
-        elapsed = time.time() - loop_start
-        log(
-            f"Stopped. Processed {tick_counter} ticks in {elapsed:.1f}s "
-            f"({tick_counter / elapsed:.1f} ticks/sec)",
-            level="INFO",
-        )
-
+        if 'loop_start' in dir() and 'tick_counter' in dir():
+            elapsed = time.time() - loop_start
+            log(
+                f"Stopped. Processed {tick_counter} ticks in {elapsed:.1f}s "
+                f"({tick_counter / elapsed:.1f} ticks/sec)",
+                level="INFO",
+            )
 
 # ── Restart wrapper ───────────────────────────────────────────────────────────
 
