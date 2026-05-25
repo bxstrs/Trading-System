@@ -162,8 +162,8 @@ class BBSqueeze(Strategy):
                 return None
 
         # ── Candle validity ───────────────────────────────────────────
-        valid_buy = (prev_open < prev_upper and prev_close > prev_upper)
-        valid_sell = (prev_open > prev_lower and prev_close < prev_lower)
+        valid_buy = (prev_lower < prev_open < prev_upper and prev_close > prev_upper)
+        valid_sell = (prev_lower < prev_open < prev_upper and prev_close < prev_lower)
 
         # ── BUY signal ───────────────────────────────────────────────
         if prev_close > prev_upper and valid_buy:
