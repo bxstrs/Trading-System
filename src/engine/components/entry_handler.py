@@ -58,10 +58,10 @@ def try_entry(
     if history is None:
         log("[ENTRY] Signal generated but snapshot has no history — cannot build setup", level="ERROR")
         return False
-    if len(history.close) < 3 or len(history.time_unix) < 3:
+    if len(history.close) < 2 or len(history.time_unix) < 2:
         log(
             f"[ENTRY] Insufficient history: {len(history.close)} bars "
-            f"(need >= 3 to safely access setup bar [-2])",
+            f"(need >= 2 to safely access setup bar [-1])",
             level="WARNING",
         )
         return False
@@ -69,7 +69,7 @@ def try_entry(
     # ── Build TradeSetup ──────────────────────────────────────────────
     setup_id         = str(uuid.uuid4())
     indicators = _get_indicator_values(strategy)
-    setup_timestamp = datetime.fromtimestamp(history.time_unix[-2], tz=timezone.utc)
+    setup_timestamp = datetime.fromtimestamp(history.time_unix[-1], tz=timezone.utc)
 
     # ── Build and log TradeSetup ──────────────────────────────────────
     setup = TradeSetup(
@@ -89,10 +89,10 @@ def try_entry(
         intended_entry_price   = signal.entry_price,
         intended_volume        = config.base_volume,
         hour_of_day            = setup_timestamp.hour,
-        candle_open            = history.open[-2],   # safe: len >= 3 checked above
-        candle_high            = history.high[-2],
-        candle_low             = history.low[-2],
-        candle_close           = history.close[-2],
+        candle_open            = history.open[-1],   # safe: len >= 2 checked above
+        candle_high            = history.high[-1],
+        candle_low             = history.low[-1],
+        candle_close           = history.close[-1],
         prev_trade_pnl         = None,
         adaptive_filter_active = indicators.get("adaptive_filter_active", False),
     )

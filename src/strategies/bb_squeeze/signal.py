@@ -96,7 +96,7 @@ class BBSqueeze(Strategy):
             return None
 
         current_bar_time = history.time_unix[-1]
-        setup_bar_time   = history.time_unix[-2]
+        setup_bar_time   = history.time_unix[-1]
 
         # ── Readiness guard ──────────────────────────────────────────
         if not (self.indicators.is_ready() and self.bandwidth_ma.is_ready()):
@@ -151,10 +151,10 @@ class BBSqueeze(Strategy):
             return None
 
         # ── Previous candle OHLC (the setup candle) ──────────────────
-        prev_open  = history.open[-2]
-        prev_close = history.close[-2]
-        prev_high  = history.high[-2]
-        prev_low   = history.low[-2]
+        prev_open  = history.open[-1]
+        prev_close = history.close[-1]
+        prev_high  = history.high[-1]
+        prev_low   = history.low[-1]
 
         # ── Adaptive filter ───────────────────────────────────────────
         if self._last_trade_was_loss:
