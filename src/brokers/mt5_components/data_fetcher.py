@@ -24,6 +24,17 @@ class MarketDataFetcher:
 
         if rates is None:
             raise RateFetchError(f"Failed to fetch rates for {symbol} on timeframe {timeframe}")
+
+        received = len(rates)
+        if received < n:
+            log(
+                f"[DATA] Requested {n} bars for {symbol}, got {received}",
+                level="WARNING",
+            )
+            if received < 30:
+                raise RateFetchError(
+                    f"Insufficient history for {symbol}: got {received} bars, need >= 30 for indicators"
+                )
         
         return History(
             symbol      = symbol,

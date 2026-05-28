@@ -100,6 +100,9 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
         _trading_config.symbol, strategy.magic_number
     )
 
+    _transient_errors      = 0
+    _MAX_TRANSIENT_ERRORS  = 10
+
     try:
         while True:
             # ── async shutdown check (pipe) ─────────────────────────
@@ -117,93 +120,109 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
             iteration_start = time.time()
             entry_executed  = False
 
-            # ── Refresh position cache ────────────────────────────────
-            position_manager.refresh_cache(_trading_config.symbol)
+            try:
+                # ── Refresh position cache ────────────────────────────────
+                position_manager.refresh_cache(_trading_config.symbol)
 
-            # ── Periodic checkpoint (interval-based) ──────────────────
-            if ticks_since_checkpoint >= _trading_config.checkpoint_interval:
-                _save_checkpoint(position_manager, risk_manager, strategy) 
-                ticks_since_checkpoint = 0
+                # ── Periodic checkpoint (interval-based) ──────────────────
+                if ticks_since_checkpoint >= _trading_config.checkpoint_interval:
+                    _save_checkpoint(position_manager, risk_manager, strategy) 
+                    ticks_since_checkpoint = 0
 
-            # ── Periodic abandoned-row flush ──────────────────────────
-            # Prevents unbounded _pending_rows cache growth on rejected setups
-            if time.time() - last_flush_time > 3600:
-                datalogger.flush_abandoned_rows()
-                intent_store.cleanup_old(max_age_seconds=86_400)
-                last_flush_time = time.time()
+                # ── Periodic abandoned-row flush ──────────────────────────
+                # Prevents unbounded _pending_rows cache growth on rejected setups
+                if time.time() - last_flush_time > 3600:
+                    datalogger.flush_abandoned_rows()
+                    intent_store.cleanup_old(max_age_seconds=86_400)
+                    last_flush_time = time.time()
 
-            # ── Market data refresh ───────────────────────────────────
-            if time.time() - last_fetch_time > _trading_config.rate_fetch_interval:
-                snapshot = get_market_snapshot(bridge, _trading_config, force_full=True)
-                if snapshot.history:
-                    current_bar_time = snapshot.history.time_unix[-1]
-                last_fetch_time = time.time()
-                _heartbeat_logger(tick_counter, snapshot.tick, current_bar_time)
-            else:
-                snapshot = get_market_snapshot(bridge, _trading_config, force_full=False)
-                _heartbeat_logger(tick_counter, snapshot.tick, current_bar_time)
+                # ── Market data refresh ───────────────────────────────────
+                if time.time() - last_fetch_time > _trading_config.rate_fetch_interval:
+                    snapshot = get_market_snapshot(bridge, _trading_config, force_full=True)
+                    if snapshot.history:
+                        current_bar_time = snapshot.history.time_unix[-1]
+                    last_fetch_time = time.time()
+                    _heartbeat_logger(tick_counter, snapshot.tick, current_bar_time)
+                else:
+                    snapshot = get_market_snapshot(bridge, _trading_config, force_full=False)
+                    _heartbeat_logger(tick_counter, snapshot.tick, current_bar_time)
 
-            if snapshot.history and current_bar_time != strategy._current_bar_time:
-                strategy.update_indicators(snapshot.history)
-                strategy._current_bar_time = current_bar_time
+                if snapshot.history and current_bar_time != strategy._current_bar_time:
+                    strategy.update_indicators(snapshot.history)
+                    strategy._current_bar_time = current_bar_time
 
-            # ── MAE/MFE update — every tick ──────────────────────────
-            for pos in position_manager.get_strategy_positions(
-                _trading_config.symbol, strategy.magic_number
-            ):
-                position_manager._update_mae_mfe(snapshot.tick, pos)
+                # ── MAE/MFE update — every tick ──────────────────────────
+                for pos in position_manager.get_strategy_positions(
+                    _trading_config.symbol, strategy.magic_number
+                ):
+                    position_manager._update_mae_mfe(snapshot.tick, pos)
 
-            # ── Manual-close detection ────────────────────────────────
-            reconciled = check_manual_closes(
-                bridge, position_manager, risk_manager,
-                strategy, snapshot, datalogger, _trading_config,
-            )
-            if reconciled > 0:
-                _save_checkpoint(position_manager, risk_manager, strategy)
-                ticks_since_checkpoint = 0
-
-            # ── Exit check ────────────────────────────────────────────
-            exit_executed = try_exit(
-                bridge, position_manager, risk_manager,
-                strategy, snapshot, datalogger,
-            )
-            if exit_executed:
-                # Bug #2 fix: checkpoint immediately after close
-                _save_checkpoint(position_manager, risk_manager, strategy)
-                ticks_since_checkpoint = 0
-
-            # ── Detect position just closed → block re-entry this bar ──
-            current_has_position = position_manager.has_open_position(
-                _trading_config.symbol, strategy.magic_number
-            )
-            if had_position and not current_has_position:
-                log("[POSITION CLOSED] Blocking re-entry for current bar.", level="INFO")
-                last_entry_bar_time = current_bar_time
-
-            had_position = current_has_position
-
-            # ── Entry attempt ─────────────────────────────────────────
-
-            if not had_position and last_entry_bar_time != current_bar_time:
-                spread = bridge.get_spread(_trading_config.symbol)
-                entry_executed = try_entry(
-                    bridge,
-                    position_manager,
-                    risk_manager,
-                    strategy,
-                    snapshot,
-                    spread,
-                    datalogger,
-                    _trading_config,
-                    intent_store,                                    
+                # ── Manual-close detection ────────────────────────────────
+                reconciled = check_manual_closes(
+                    bridge, position_manager, risk_manager,
+                    strategy, snapshot, datalogger, _trading_config,
                 )
+                if reconciled > 0:
+                    _save_checkpoint(position_manager, risk_manager, strategy)
+                    ticks_since_checkpoint = 0
 
-            if entry_executed:
-                had_position        = True
-                last_entry_bar_time = current_bar_time
-                _save_checkpoint(position_manager, risk_manager, strategy)
-                ticks_since_checkpoint = 0
-                log(f"[ENTRY] Signal executed in {time.time() - iteration_start:.3f}s")
+                # ── Exit check ────────────────────────────────────────────
+                exit_executed = try_exit(
+                    bridge, position_manager, risk_manager,
+                    strategy, snapshot, datalogger,
+                )
+                if exit_executed:
+                    # Bug #2 fix: checkpoint immediately after close
+                    _save_checkpoint(position_manager, risk_manager, strategy)
+                    ticks_since_checkpoint = 0
+
+                # ── Detect position just closed → block re-entry this bar ──
+                current_has_position = position_manager.has_open_position(
+                    _trading_config.symbol, strategy.magic_number
+                )
+                if had_position and not current_has_position:
+                    log("[POSITION CLOSED] Blocking re-entry for current bar.", level="INFO")
+                    last_entry_bar_time = current_bar_time
+
+                had_position = current_has_position
+
+                # ── Entry attempt ─────────────────────────────────────────
+
+                if not had_position and last_entry_bar_time != current_bar_time:
+                    spread = bridge.get_spread(_trading_config.symbol)
+                    entry_executed = try_entry(
+                        bridge,
+                        position_manager,
+                        risk_manager,
+                        strategy,
+                        snapshot,
+                        spread,
+                        datalogger,
+                        _trading_config,
+                        intent_store,                                    
+                    )
+
+                if entry_executed:
+                    had_position        = True
+                    last_entry_bar_time = current_bar_time
+                    _save_checkpoint(position_manager, risk_manager, strategy)
+                    ticks_since_checkpoint = 0
+                    log(f"[ENTRY] Signal executed in {time.time() - iteration_start:.3f}s")
+
+                # Reset transient error counter on successful iteration
+                _transient_errors = 0
+
+            except (MarketDataUnavailable, ConnectionError) as exc:
+                _transient_errors += 1
+                log(
+                    f"[TRANSIENT] {type(exc).__name__}: {exc} "
+                    f"(attempt {_transient_errors}/{_MAX_TRANSIENT_ERRORS})",
+                    level="WARNING",
+                )
+                if _transient_errors >= _MAX_TRANSIENT_ERRORS:
+                    raise
+                time.sleep(5)
+                continue
 
             time.sleep(_trading_config.tick_sleep)
 
@@ -228,7 +247,7 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
         if 'position_manager' in dir() and 'risk_manager' in dir() and 'strategy' in dir():
             _save_checkpoint(position_manager, risk_manager, strategy)
         if 'datalogger' in dir():
-            datalogger.close(clean_exit=_should_exit)
+            datalogger.close(clean_exit=not _should_exit)
         bridge.shutdown()
         if 'loop_start' in dir() and 'tick_counter' in dir():
             elapsed = time.time() - loop_start
