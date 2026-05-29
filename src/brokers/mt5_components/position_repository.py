@@ -67,6 +67,8 @@ class PositionRepository:
                 volume      = trade_history.volume,
                 price       = trade_history.price,
                 entry       = trade_history.entry,
+                type        = getattr(trade_history, "type", 0),
+                reason      = getattr(trade_history, "reason", 0),
                 commission  = trade_history.commission,
                 swap        = trade_history.swap,
                 profit      = trade_history.profit,
@@ -80,10 +82,7 @@ class PositionRepository:
         if not self.connection_manager.ensure_connected():
             raise ConnectionError("Not connected to MT5")
 
-        # MT5 requires a date range when using position= filter, otherwise it defaults to a short recent period.
-        date_from = datetime(2020, 1, 1, tzinfo=timezone.utc)
-        date_to = datetime.now(timezone.utc) + timedelta(days=1)
-        histories = mt5.history_deals_get(date_from, date_to, position=position_id)
+        histories = mt5.history_deals_get(position=position_id)   # no date range needed
 
         if not histories:
             return []
@@ -100,6 +99,8 @@ class PositionRepository:
                 volume      = d.volume,
                 price       = d.price,
                 entry       = d.entry,
+                type        = getattr(d, "type", 0),
+                reason      = getattr(d, "reason", 0),
                 commission  = d.commission,
                 swap        = d.swap,
                 profit      = d.profit,

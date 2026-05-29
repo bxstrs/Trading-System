@@ -10,6 +10,7 @@ from src.domain.trading         import TradeResult
 from src.engine.components.trading_config import TradingConfig
 from src.infrastructure.logger.data_logger import DataLogger
 from src.infrastructure.logger.logger import log
+from src.brokers.mt5_components.retcode_mapper import map_deal_reason
 
 
 def check_manual_closes(
@@ -47,10 +48,6 @@ def check_manual_closes(
     for ticket in ghost_tickets:
         meta = position_manager._position_metadata.get(ticket)
         if meta is None:
-            continue
-        
-        if meta.get("reconciled"):
-            position_manager.remove_metadata(ticket)
             continue
 
         # ── Fetch deal history ────────────────────────────────────────
@@ -102,6 +99,22 @@ def check_manual_closes(
         net_pnl    = sum(d.profit     for d in deals)
         total_fees = sum((d.commission or 0.0) + (d.swap or 0.0) + (d.fee or 0.0)for d in deals)
 
+        # ── Determine exit reason based on MT5 deal reason ────────────
+        exit_reason = "manual_close"
+        if getattr(exit_deal, "reason", 0) == 1:  # expert
+            if entry_deals:
+                entry_deal = entry_deals[0]
+                if entry_deal.type == 0:  # mt5.DEAL_TYPE_BUY
+                    exit_reason = "bollinger_lower_cross"
+                elif entry_deal.type == 1:  # mt5.DEAL_TYPE_SELL
+                    exit_reason = "bollinger_upper_cross"
+        elif getattr(exit_deal, "reason", 0) == 2:  # sl
+            exit_reason = "sl_hit"
+        elif getattr(exit_deal, "reason", 0) == 3:  # tp
+            exit_reason = "tp_hit"
+        elif getattr(exit_deal, "reason", 0) == 4:  # so
+            exit_reason = "stop_out"
+
         trade_result = TradeResult(
             setup_id                = meta.get("setup_id"),
             position_id             = ticket,
@@ -110,7 +123,7 @@ def check_manual_closes(
             volume                  = exit_deal.volume,
             exit_price              = exit_deal.price,
             exit_time               = exit_deal.timestamp,
-            exit_reason             = "manual_close",
+            exit_reason             = exit_reason,
             exit_bid                = snapshot.tick.bid,
             exit_ask                = snapshot.tick.ask,
             total_fees              = total_fees,
@@ -135,7 +148,7 @@ def check_manual_closes(
         detected += 1
  
         log(
-            f"[RECONCILE] Manual/external close — ticket={ticket}, exit={exit_deal.price:.5f}, pnl={net_pnl:.2f}, duration={f'{duration_min:.1f}min' if duration_min else 'unknown'}",
+            f"[RECONCILE] {exit_reason.upper()} close — ticket={ticket}, exit={exit_deal.price:.5f}, pnl={net_pnl:.2f}, duration={f'{duration_min:.1f}min' if duration_min else 'unknown'}",
             level="WARNING",
         )
  

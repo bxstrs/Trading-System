@@ -39,8 +39,12 @@ def try_exit(
                 )
                 continue
 
+            # ── Retrieve stored metadata ───────────────────────────────────    
+            key     = position_manager._get_position_key(pos)
+            meta    = position_manager._position_metadata.get(key, {})
+
             execution = TradeExecution(
-                setup_id            = None,
+                setup_id            = meta.get("setup_id"),
                 position_id         = result.position_id,
                 order               = result.order,
                 deal                = result.deal,
@@ -51,7 +55,8 @@ def try_exit(
                 latency_ms          = result.latency_ms,
                 status              = result.status,
             )
-            # datalogger.log_trade_execution(execution)
+            datalogger.log_exit_execution(execution)
+
             # ── Fetch deal history for accurate PnL ──────────────────────
             try:
                 deals = bridge.history_deals_get_by_position(pos.ticket)
@@ -59,10 +64,6 @@ def try_exit(
                 log(f"[EXIT] Failed to fetch deals for ticket={pos.ticket}: {exc}", level="ERROR")
                 deals = []
 
-            # ── Retrieve stored metadata ───────────────────────────────────    
-            key     = position_manager._get_position_key(pos)
-            meta    = position_manager._position_metadata.get(key, {})
-            
             entry_fill_time = meta.get("entry_fill_time")
             duration_minutes = None
             if entry_fill_time and result.fill_time:

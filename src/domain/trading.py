@@ -119,6 +119,8 @@ class TradeHistory:
     volume:             float
     price:              float
     entry:              int     = 0
+    type:               int     = 0
+    reason:             int     = 0
     commission:         float   = 0.0
     swap:               float   = 0.0
     profit:             float   = 0.0

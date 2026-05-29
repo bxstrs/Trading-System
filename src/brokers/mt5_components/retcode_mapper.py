@@ -11,3 +11,16 @@ MT5_RETCODE_MAP = {
 
 def map_retcode(retcode: int) -> ExecutionStatus:
     return MT5_RETCODE_MAP.get(retcode, ExecutionStatus.FAILED)
+
+
+DEAL_REASON_MAP = {
+    0: "manual_close",  # Client manual close
+    1: "expert",        # Expert Advisor
+    2: "sl_hit",        # Stop Loss
+    3: "tp_hit",        # Take Profit
+    4: "stop_out",      # Stop Out
+}
+
+
+def map_deal_reason(reason: int) -> str:
+    return DEAL_REASON_MAP.get(reason, "manual_close")

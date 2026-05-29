@@ -69,7 +69,7 @@ class OrderExecutor:
                             fill_time           = fill_time,
                             slippage            = abs(result.price - price),
                             latency_ms          = (time.perf_counter() - t0) * 1000,
-                            status              = ExecutionStatus.DONE,
+                            status              = status,
                     )
                 else:
                     error_msg = f"Order failed with retcode {result.retcode}: {getattr(result, 'comment', 'N/A')}"
@@ -138,7 +138,7 @@ class OrderExecutor:
                             fill_time           = fill_time,
                             slippage            = abs(result.price - price),
                             latency_ms          = (time.perf_counter() - t0) * 1000,
-                            status              = ExecutionStatus.DONE,
+                            status              = status,
                     )
                 else:
                     error_msg = f"Order failed with retcode {result.retcode}: {getattr(result, 'comment', 'N/A')}"

@@ -17,9 +17,12 @@ class DataLogger:
         "intended_entry_price", "intended_volume",
         "hour_of_day", "candle_open", "candle_high", "candle_low", "candle_close",
         "prev_trade_pnl", "adaptive_filter_active",
-        # TradeExecution: fill details
-        "position_id", "deal", "fill_price", "fill_volume", "fill_time",
-        "slippage", "latency_ms", "execution_status",
+        # TradeExecution: entry details
+        "position_id", "entry_deal", "entry_fill_price", "entry_fill_volume", "entry_fill_time",
+        "entry_slippage", "entry_latency_ms", "entry_status",
+        # TradeExecution: exit details
+        "exit_deal", "exit_fill_price", "exit_fill_volume", "exit_fill_time",
+        "exit_slippage", "exit_latency_ms", "exit_status",
         # TradeResult: complete lifecycle
         "exit_price", "exit_time", "exit_reason",
         "exit_bid", "exit_ask", "total_fees", "net_pnl",
@@ -113,20 +116,37 @@ class DataLogger:
         self._evict_if_needed()
 
     def log_trade_execution(self, execution) -> None:
-        """Update pending row with execution details."""
+        """Update pending row with entry execution details."""
         setup_id = execution.setup_id
         if setup_id is None:
             return
 
         row = {
-            "position_id":      execution.position_id,
-            "deal":             execution.deal,
-            "fill_price":       execution.fill_price,
-            "fill_volume":      execution.fill_volume,
-            "fill_time":        execution.fill_time.isoformat() if execution.fill_time else None,
-            "slippage":         execution.slippage,
-            "latency_ms":       execution.latency_ms,
-            "execution_status": execution.status,
+            "position_id":        execution.position_id,
+            "entry_deal":         execution.deal,
+            "entry_fill_price":   execution.fill_price,
+            "entry_fill_volume":  execution.fill_volume,
+            "entry_fill_time":    execution.fill_time.isoformat() if execution.fill_time else None,
+            "entry_slippage":     execution.slippage,
+            "entry_latency_ms":   execution.latency_ms,
+            "entry_status":       execution.status.name if hasattr(execution.status, "name") else execution.status,
+        }
+        self._pending_rows[setup_id].update(row)
+
+    def log_exit_execution(self, execution) -> None:
+        """Update pending row with exit execution details."""
+        setup_id = execution.setup_id
+        if setup_id is None:
+            return
+
+        row = {
+            "exit_deal":         execution.deal,
+            "exit_fill_price":   execution.fill_price,
+            "exit_fill_volume":  execution.fill_volume,
+            "exit_fill_time":    execution.fill_time.isoformat() if execution.fill_time else None,
+            "exit_slippage":     execution.slippage,
+            "exit_latency_ms":   execution.latency_ms,
+            "exit_status":       execution.status.name if hasattr(execution.status, "name") else execution.status,
         }
         self._pending_rows[setup_id].update(row)
 

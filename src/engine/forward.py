@@ -22,11 +22,9 @@ from src.infrastructure.state.intent_storage      import IntentStore
 
 
 # ── Module-level singletons ───────────────────────────────────────────────────
-# NOTE: These fire at import time. A future refactor should move them into
-# run_forward() to support multi-strategy and make unit tests import-safe.
+# NOTE: Async-signal-safe shutdown pipe and state flag.
+# Configuration and PositionStorage are loaded dynamically at runtime inside run_forward.
 
-_trading_config: TradingConfig  = load_trading_config()
-_position_storage: PositionStorage = PositionStorage()
 _should_exit: bool = False
 # ── Async-signal-safe shutdown pipe ─────────────────────
 _shutdown_r, _shutdown_w = os.pipe()
@@ -44,7 +42,12 @@ def _signal_handler(signum, frame) -> None:
 
 # ── Core loop ─────────────────────────────────────────────────────────────────
 
-def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
+def main_loop(
+    strategy_name: str, 
+    notifier: LineNotifier, 
+    trading_config: TradingConfig, 
+    position_storage: PositionStorage
+) -> None:
 
     global _should_exit
 
@@ -70,22 +73,24 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
         raise
 
     strategy         = load_strategy(strategy_name)
-    datalogger       = DataLogger(strategy_id=strategy.strategy_id, symbol=_trading_config.symbol)
+    datalogger       = DataLogger(strategy_id=strategy.strategy_id, symbol=trading_config.symbol)
     intent_store     = IntentStore()                                
     position_manager = PositionManager(bridge, datalogger=datalogger)
     risk_manager     = RiskManager()
 
-    history, tick = fetch_full_market_data(bridge, _trading_config)
+    snapshot = get_market_snapshot(bridge, trading_config, force_full=True)
+    history = snapshot.history if snapshot.history else fetch_full_market_data(bridge, trading_config)[0]
 
     log(f"Loaded strategy: {strategy.strategy_id}")
 
     # ── Recovery sequence (order matters) ─────────────────────────────
     # 1. Load checkpoint + restore metadata + risk state
-    _run_recovery(bridge, position_manager, strategy, risk_manager)
+    _run_recovery(bridge, position_manager, strategy, risk_manager, snapshot, datalogger, trading_config, position_storage)
     # 2. Resolve any PENDING intents left by previous crash
     #    Must run BEFORE warmup so metadata is complete before indicators run
-    resolve_pending_intents(intent_store, bridge, position_manager, _trading_config, strategy)
+    resolve_pending_intents(intent_store, bridge, position_manager, trading_config, strategy)
     # 3. Warm up strategy indicators
+    #    Bug #14 fix: pass history and ensure warmup replays X bars
     warmup_strategy(strategy, history)
 
     # ── Loop state ────────────────────────────────────────────────────
@@ -97,7 +102,7 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
     last_flush_time        = time.time()
     loop_start             = time.time()
     had_position           = position_manager.has_open_position(
-        _trading_config.symbol, strategy.magic_number
+        trading_config.symbol, strategy.magic_number
     )
 
     _transient_errors      = 0
@@ -122,11 +127,11 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
 
             try:
                 # ── Refresh position cache ────────────────────────────────
-                position_manager.refresh_cache(_trading_config.symbol)
+                position_manager.refresh_cache(trading_config.symbol)
 
                 # ── Periodic checkpoint (interval-based) ──────────────────
-                if ticks_since_checkpoint >= _trading_config.checkpoint_interval:
-                    _save_checkpoint(position_manager, risk_manager, strategy) 
+                if ticks_since_checkpoint >= trading_config.checkpoint_interval:
+                    _save_checkpoint(position_manager, risk_manager, strategy, trading_config, position_storage) 
                     ticks_since_checkpoint = 0
 
                 # ── Periodic abandoned-row flush ──────────────────────────
@@ -137,14 +142,14 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
                     last_flush_time = time.time()
 
                 # ── Market data refresh ───────────────────────────────────
-                if time.time() - last_fetch_time > _trading_config.rate_fetch_interval:
-                    snapshot = get_market_snapshot(bridge, _trading_config, force_full=True)
+                if time.time() - last_fetch_time > trading_config.rate_fetch_interval:
+                    snapshot = get_market_snapshot(bridge, trading_config, force_full=True)
                     if snapshot.history:
                         current_bar_time = snapshot.history.time_unix[-1]
                     last_fetch_time = time.time()
                     _heartbeat_logger(tick_counter, snapshot.tick, current_bar_time)
                 else:
-                    snapshot = get_market_snapshot(bridge, _trading_config, force_full=False)
+                    snapshot = get_market_snapshot(bridge, trading_config, force_full=False)
                     _heartbeat_logger(tick_counter, snapshot.tick, current_bar_time)
 
                 if snapshot.history and current_bar_time != strategy._current_bar_time:
@@ -153,17 +158,17 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
 
                 # ── MAE/MFE update — every tick ──────────────────────────
                 for pos in position_manager.get_strategy_positions(
-                    _trading_config.symbol, strategy.magic_number
+                    trading_config.symbol, strategy.magic_number
                 ):
                     position_manager._update_mae_mfe(snapshot.tick, pos)
 
                 # ── Manual-close detection ────────────────────────────────
                 reconciled = check_manual_closes(
                     bridge, position_manager, risk_manager,
-                    strategy, snapshot, datalogger, _trading_config,
+                    strategy, snapshot, datalogger, trading_config,
                 )
                 if reconciled > 0:
-                    _save_checkpoint(position_manager, risk_manager, strategy)
+                    _save_checkpoint(position_manager, risk_manager, strategy, trading_config, position_storage)
                     ticks_since_checkpoint = 0
 
                 # ── Exit check ────────────────────────────────────────────
@@ -173,12 +178,12 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
                 )
                 if exit_executed:
                     # Bug #2 fix: checkpoint immediately after close
-                    _save_checkpoint(position_manager, risk_manager, strategy)
+                    _save_checkpoint(position_manager, risk_manager, strategy, trading_config, position_storage)
                     ticks_since_checkpoint = 0
 
                 # ── Detect position just closed → block re-entry this bar ──
                 current_has_position = position_manager.has_open_position(
-                    _trading_config.symbol, strategy.magic_number
+                    trading_config.symbol, strategy.magic_number
                 )
                 if had_position and not current_has_position:
                     log("[POSITION CLOSED] Blocking re-entry for current bar.", level="INFO")
@@ -189,7 +194,7 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
                 # ── Entry attempt ─────────────────────────────────────────
 
                 if not had_position and last_entry_bar_time != current_bar_time:
-                    spread = bridge.get_spread(_trading_config.symbol)
+                    spread = bridge.get_spread(trading_config.symbol)
                     entry_executed = try_entry(
                         bridge,
                         position_manager,
@@ -198,14 +203,14 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
                         snapshot,
                         spread,
                         datalogger,
-                        _trading_config,
+                        trading_config,
                         intent_store,                                    
                     )
 
                 if entry_executed:
                     had_position        = True
                     last_entry_bar_time = current_bar_time
-                    _save_checkpoint(position_manager, risk_manager, strategy)
+                    _save_checkpoint(position_manager, risk_manager, strategy, trading_config, position_storage)
                     ticks_since_checkpoint = 0
                     log(f"[ENTRY] Signal executed in {time.time() - iteration_start:.3f}s")
 
@@ -224,7 +229,7 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
                 time.sleep(5)
                 continue
 
-            time.sleep(_trading_config.tick_sleep)
+            time.sleep(trading_config.tick_sleep)
 
     except KeyboardInterrupt:
         log("Stopped by user", level="INFO")
@@ -245,7 +250,7 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
     finally:
         log("Graceful shutdown: saving state and closing resources", level="INFO")
         if 'position_manager' in dir() and 'risk_manager' in dir() and 'strategy' in dir():
-            _save_checkpoint(position_manager, risk_manager, strategy)
+            _save_checkpoint(position_manager, risk_manager, strategy, trading_config, position_storage)
         if 'datalogger' in dir():
             datalogger.close(clean_exit=not _should_exit)
         bridge.shutdown()
@@ -262,16 +267,26 @@ def main_loop(strategy_name: str, notifier: LineNotifier) -> None:
 def run_forward(strategy_name: str = "bb_squeeze") -> None:
 
     notifier = LineNotifier()
+
+    try:
+        trading_config = load_trading_config()
+        position_storage = PositionStorage()
+    except Exception as exc:
+        message = f"Failed to load trading config or position storage: {exc}"
+        log(message, level="ERROR")
+        _notify(notifier, message)
+        raise
+
     attempt  = 0
 
     try:
         while (
-            _trading_config.max_restart_attempts < 0
-            or attempt < _trading_config.max_restart_attempts
+            trading_config.max_restart_attempts < 0
+            or attempt < trading_config.max_restart_attempts
         ):
             attempt += 1
             try:
-                main_loop(strategy_name, notifier)
+                main_loop(strategy_name, notifier, trading_config, position_storage)
                 break  # clean exit — don't restart
             except KeyboardInterrupt:
                 log("Forward runner stopped by user", level="INFO")
@@ -279,20 +294,20 @@ def run_forward(strategy_name: str = "bb_squeeze") -> None:
             except Exception as exc:
                 message = (
                     f"Forward runner crashed (attempt {attempt}): {exc}. "
-                    f"Restarting in {_trading_config.restart_delay}s."
+                    f"Restarting in {trading_config.restart_delay}s."
                 )
                 log(message, level="ERROR")
                 _notify(notifier, message)
                 traceback.print_exc()
 
                 if (
-                    _trading_config.max_restart_attempts >= 0
-                    and attempt >= _trading_config.max_restart_attempts
+                    trading_config.max_restart_attempts >= 0
+                    and attempt >= trading_config.max_restart_attempts
                 ):
                     log("Reached max restart attempts, exiting", level="ERROR")
                     break
 
-                time.sleep(_trading_config.restart_delay)
+                time.sleep(trading_config.restart_delay)
 
     finally:
         for fd in (_shutdown_r, _shutdown_w):
@@ -315,14 +330,16 @@ def _save_checkpoint(
     position_manager: PositionManager,
     risk_manager:     RiskManager,          
     strategy,
+    trading_config:   TradingConfig,
+    position_storage: PositionStorage,
 ) -> None:
 
     positions = position_manager.get_strategy_positions(
-        _trading_config.symbol,
+        trading_config.symbol,
         strategy.magic_number,
     )
 
-    _position_storage.save_positions(
+    position_storage.save_positions(
         positions,
         strategy_id = strategy.strategy_id,
         metadata    = position_manager.serialize_metadata(),
@@ -336,13 +353,17 @@ def _run_recovery(
     position_manager: PositionManager,
     strategy,
     risk_manager:     RiskManager,
+    snapshot,
+    datalogger:       DataLogger,
+    trading_config:   TradingConfig,
+    position_storage: PositionStorage,
 ) -> None:
     """
     On startup, reload checkpoint state:
       1. Position metadata (MAE/MFE, setup_id, fill times)
       2. Risk state (consecutive_losses, trading_halted)   ← Bug #8A fix
     """
-    checkpoint_data = _position_storage.load_positions(strategy.strategy_id)
+    checkpoint_data = position_storage.load_positions(strategy.strategy_id)
 
     if not checkpoint_data:
         log("[RECOVERY] No checkpoint found — starting fresh", level="INFO")
@@ -355,9 +376,11 @@ def _run_recovery(
         )
     )
 
+    check_manual_closes(bridge, position_manager, risk_manager, strategy, snapshot, datalogger, trading_config)
+
     # ── Reconcile against live MT5 positions ───────────────────────────
-    live_positions = bridge.get_positions(_trading_config.symbol)
-    position_manager.reconcile(live_positions, checkpoint_data, _position_storage)
+    live_positions = bridge.get_positions(trading_config.symbol)
+    position_manager.reconcile(live_positions, checkpoint_data, position_storage)
 
     risk_state = checkpoint_data.get("risk_state", {})
     risk_manager.restore_state(risk_state)

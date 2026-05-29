@@ -118,7 +118,8 @@ class BBSqueeze(Strategy):
         if current_bar_time != self._entry_window_bar:
             log(
                 f"[BB][FILTERED] Setup expired — "
-                f"setup={setup_bar_time}, window={self._entry_window_bar}, now={current_bar_time}",
+                f"setup={setup_bar_time}, window={self._entry_window_bar}, now={current_bar_time}", 
+                level="INFO"
             )
             return None
 
