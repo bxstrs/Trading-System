@@ -52,7 +52,7 @@ def try_entry(
         return False 
     
     direction_enum = Direction.LONG if signal.direction.name == "LONG" else Direction.SHORT
-    log(f"[ENTRY] {signal.direction} at expected price: {signal.entry_price}", level="INFO")
+    log(f"[ENTRY] {signal.direction} at expected price: {signal.entry_price}", level="SIGNAL")
 
     history          = snapshot.history
     if history is None:
@@ -69,7 +69,7 @@ def try_entry(
     # ── Build TradeSetup ──────────────────────────────────────────────
     setup_id         = str(uuid.uuid4())
     indicators = _get_indicator_values(strategy)
-    setup_timestamp = datetime.fromtimestamp(history.time_unix[-1], tz=timezone.utc)
+    setup_timestamp = signal.timestamp
 
     # ── Build and log TradeSetup ──────────────────────────────────────
     setup = TradeSetup(
@@ -93,7 +93,7 @@ def try_entry(
         candle_high            = history.high[-1],
         candle_low             = history.low[-1],
         candle_close           = history.close[-1],
-        prev_trade_pnl         = None,
+        prev_trade_pnl         = getattr(strategy, "_last_trade_pnl", None),
         adaptive_filter_active = indicators.get("adaptive_filter_active", False),
     )
     datalogger.log_trade_setup(setup)
@@ -132,6 +132,7 @@ def try_entry(
         volume      = config.base_volume,
         magic       = strategy.magic_number,
         comment     = strategy.strategy_id,
+        deviation   = config.deviation,
     )
  
     if result is None:

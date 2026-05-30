@@ -14,6 +14,7 @@ class BBSqueeze(Strategy):
 
         # Adaptive state
         self._last_trade_was_loss:  bool = False
+        self._last_trade_pnl: float|None = None
         self._current_bar_time           = None
         self._tracked_setup_bar          = None
         self._entry_window_bar           = None
@@ -231,16 +232,21 @@ class BBSqueeze(Strategy):
     # ─────────────────────────────────────────────────────────────
 
     def update_trade_result(self, trade) -> None:
+        self._last_trade_pnl = trade.net_pnl
         if trade.net_pnl is None:
             return
         self._last_trade_was_loss = trade.net_pnl < 0
 
     def save_state(self) -> dict:
-        return {"last_trade_was_loss": self._last_trade_was_loss}
+        return {
+            "last_trade_was_loss": self._last_trade_was_loss,
+            "last_trade_pnl" : self._last_trade_pnl,
+        }
 
     def restore_state(self, state: dict) -> None:
         if state:
             self._last_trade_was_loss = state.get("last_trade_was_loss", False)
+            self._last_trade_pnl = state.get("last_trade_pnl", None)
 
     # ─────────────────────────────────────────────────────────────
     # Indicator snapshot (for DataLogger)

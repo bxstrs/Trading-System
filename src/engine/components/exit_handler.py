@@ -12,6 +12,7 @@ def try_exit(
         strategy, 
         snapshot: MarketSnapshot,
         datalogger: DataLogger,
+        config,
 ) -> bool:
 
     positions = position_manager.get_strategy_positions(snapshot.tick.symbol, strategy.magic_number)
@@ -31,7 +32,7 @@ def try_exit(
             exit_price = (snapshot.tick.bid if pos.direction.name == "LONG" else snapshot.tick.ask)
             log(f"[EXIT] {pos.direction} at {exit_price} (reason: {exit_reason})",level="INFO")
             
-            result = bridge.close_position(pos)
+            result = bridge.close_position(pos, deviation=config.deviation)
             
             if result is None:
                 log(

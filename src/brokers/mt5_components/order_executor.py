@@ -24,7 +24,7 @@ class OrderExecutor:
         self.connector = connector
         self.data_fetcher = data_fetcher
 
-    def send_order(self, setup: TradeSetup, volume: float, magic: int, comment: str = "forward_test", max_retries: int = 3) -> TradeExecution | None:
+    def send_order(self, setup: TradeSetup, volume: float, magic: int, comment: str = "forward_test", max_retries: int = 3, deviation: int = 10) -> TradeExecution | None:
         
         if not self.connector.ensure_connected():
             raise ConnectionError("Not connected to MT5")
@@ -46,7 +46,8 @@ class OrderExecutor:
             volume      = volume,
             price       = price,
             magic       = magic,
-            comment     = comment
+            comment     = comment,
+            deviation   = deviation
         )
 
         # Retry logic with exponential backoff
@@ -95,7 +96,7 @@ class OrderExecutor:
 
         return None
 
-    def close_position(self, pos: Position, max_retries: int = 3) -> TradeExecution | None:
+    def close_position(self, pos: Position, max_retries: int = 3, deviation: int = 10) -> TradeExecution | None:
 
         if not self.connector.ensure_connected():
             raise ConnectionError("Not connected to MT5")
@@ -116,7 +117,8 @@ class OrderExecutor:
             price           = price,
             magic           = pos.magic,
             comment         = "close",
-            position_ticket = pos.ticket
+            position_ticket = pos.ticket,
+            deviation       = deviation
         )
 
         for attempt in range(1, max_retries + 1):
@@ -166,7 +168,7 @@ class OrderExecutor:
     
     # ── Private helpers ───────────────────────────────────────────────────────────
 
-    def _build_order_request(self, symbol: str, order_type: int, volume: float, price: float, magic: int, comment: str, position_ticket: int | None = None) -> dict:
+    def _build_order_request(self, symbol: str, order_type: int, volume: float, price: float, magic: int, comment: str, position_ticket: int | None = None, deviation: int = 10) -> dict:
 
         request = {
             "action":       mt5.TRADE_ACTION_DEAL,
@@ -174,7 +176,7 @@ class OrderExecutor:
             "volume":       volume,
             "type":         order_type,
             "price":        price,
-            "deviation":    10,
+            "deviation":    deviation,
             "magic":        magic,
             "comment":      comment,
             "type_time":    mt5.ORDER_TIME_GTC,

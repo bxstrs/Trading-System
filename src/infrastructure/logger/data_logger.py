@@ -79,7 +79,7 @@ class DataLogger:
         self._pending_rows:      dict = defaultdict(dict)
         self._row_timestamps:    dict = {}      # setup_id → time.monotonic()
         self._writes_since_fsync: int = 0
-        self._fsync_batch_size:   int = 10
+        self._fsync_batch_size:   int = 1
 
     def log_trade_setup(self, setup) -> None:
         """Log trade setup. Row remains open for execution/result updates."""

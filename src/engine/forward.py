@@ -21,10 +21,6 @@ from src.infrastructure.state.position_storage  import PositionStorage
 from src.infrastructure.state.intent_storage      import IntentStore
 
 
-# ── Module-level singletons ───────────────────────────────────────────────────
-# NOTE: Async-signal-safe shutdown pipe and state flag.
-# Configuration and PositionStorage are loaded dynamically at runtime inside run_forward.
-
 _should_exit: bool = False
 # ── Async-signal-safe shutdown pipe ─────────────────────
 _shutdown_r, _shutdown_w = os.pipe()
@@ -90,7 +86,6 @@ def main_loop(
     #    Must run BEFORE warmup so metadata is complete before indicators run
     resolve_pending_intents(intent_store, bridge, position_manager, trading_config, strategy)
     # 3. Warm up strategy indicators
-    #    Bug #14 fix: pass history and ensure warmup replays X bars
     warmup_strategy(strategy, history)
 
     # ── Loop state ────────────────────────────────────────────────────
@@ -174,10 +169,9 @@ def main_loop(
                 # ── Exit check ────────────────────────────────────────────
                 exit_executed = try_exit(
                     bridge, position_manager, risk_manager,
-                    strategy, snapshot, datalogger,
+                    strategy, snapshot, datalogger, trading_config
                 )
                 if exit_executed:
-                    # Bug #2 fix: checkpoint immediately after close
                     _save_checkpoint(position_manager, risk_manager, strategy, trading_config, position_storage)
                     ticks_since_checkpoint = 0
 
@@ -249,7 +243,8 @@ def main_loop(
 
     finally:
         log("Graceful shutdown: saving state and closing resources", level="INFO")
-        if 'position_manager' in dir() and 'risk_manager' in dir() and 'strategy' in dir():
+        _locals = locals()
+        if all(k in _locals for k in ('position_manager', 'risk_manager', 'strategy')):
             _save_checkpoint(position_manager, risk_manager, strategy, trading_config, position_storage)
         if 'datalogger' in dir():
             datalogger.close(clean_exit=not _should_exit)

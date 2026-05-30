@@ -100,7 +100,7 @@ def check_manual_closes(
         total_fees = sum((d.commission or 0.0) + (d.swap or 0.0) + (d.fee or 0.0)for d in deals)
 
         # ── Determine exit reason based on MT5 deal reason ────────────
-        exit_reason = "manual_close"
+        exit_reason = map_deal_reason(getattr(exit_deal, "reason", 0))
         if getattr(exit_deal, "reason", 0) == 1:  # expert
             if entry_deals:
                 entry_deal = entry_deals[0]
@@ -108,12 +108,6 @@ def check_manual_closes(
                     exit_reason = "bollinger_lower_cross"
                 elif entry_deal.type == 1:  # mt5.DEAL_TYPE_SELL
                     exit_reason = "bollinger_upper_cross"
-        elif getattr(exit_deal, "reason", 0) == 2:  # sl
-            exit_reason = "sl_hit"
-        elif getattr(exit_deal, "reason", 0) == 3:  # tp
-            exit_reason = "tp_hit"
-        elif getattr(exit_deal, "reason", 0) == 4:  # so
-            exit_reason = "stop_out"
 
         trade_result = TradeResult(
             setup_id                = meta.get("setup_id"),

@@ -39,11 +39,11 @@ class MT5Bridge:
         return self.market_data.get_spread(symbol)
 
     # Order Execution Methods
-    def send_order(self, setup: TradeSetup, volume: float, magic: int, comment: str = "forward_test", max_retries: int = 3) -> TradeExecution | None:
-        return self.executor.send_order(setup, volume, magic, comment, max_retries)
+    def send_order(self, setup: TradeSetup, volume: float, magic: int, comment: str = "forward_test", max_retries: int = 3, deviation: int = 10) -> TradeExecution | None:
+        return self.executor.send_order(setup, volume, magic, comment, max_retries, deviation)
 
-    def close_position(self, position) -> TradeExecution | None:
-        return self.executor.close_position(position)
+    def close_position(self, position, deviation: int = 10) -> TradeExecution | None:
+        return self.executor.close_position(position, deviation=deviation)
 
     # Position Queries
     def get_positions(self, symbol: str) -> List[Position]:

@@ -51,7 +51,7 @@ class RiskManager:
             self._consecutive_losses = 0
  
     # ------------------------------------------------------------------
-    # State Persistence (Bug #8 fix)
+    # State Persistence
     # ------------------------------------------------------------------
  
     def save_state(self) -> dict:
